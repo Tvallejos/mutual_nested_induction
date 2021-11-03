@@ -353,11 +353,11 @@ MetaCoq Run (
         lemma <- tmEval lazy (createInductionPrinciple inductive uinst t);;
          (* tmPrint lemma;; *) (* this can not be read *)
          tmMkDefinition "test" lemma
-    | [] => tmMsg ""
-    | _ => tmMsg ""
+    | [] => tmFail "no inductive body found"
+    | _ => tmFail "too many inductive bodies (currently, mutual induction is not supported)"
     end
-    | _ => tmMsg ""
-    (* todo: find inductive if hidden under applications (to evars) *)
+    | _ => tmFail "Not an inductive type, maybe try @ind for implicit arguments"
+    (* Todo: find inductive if hidden under applications (to evars) *)
     end
 ).
 Print test.
