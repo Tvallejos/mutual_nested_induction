@@ -13,3 +13,4 @@ Inductive nonUniDepTest (A:Type) (N:nat) (xs:list A) : bool -> nat -> Type :=
     | CD2: forall (H1:nonUniDepTest A N (xs ++ xs) true 0), nonUniDepTest A N xs false 1.
 
 Inductive depTest (A:Type) (HA: A -> Type) : (forall a, HA a) -> Type :=.
+Inductive implicitTest {n:nat} (A:Type) : Type := Impl.

@@ -107,7 +107,7 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
      *)
 
      (* separate params, non-uniform params, and indices *)
-    let non_uniform_param_count := 1 in (* TODO: guess it correctly *)
+    let non_uniform_param_count := 0 in (* TODO: guess it correctly *)
     let ind_type := ind.(ind_type) in (* type of the inductive *)
     let (ctx,retTy) := decompose_prod_assum [] ind_type in (* get params and indices and inner retTy *)
         (* for list: ctx=[Type], retTy=Type *)
@@ -408,14 +408,19 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
 
 
 MetaCoq Run (
-    (* t <- tmQuote (@list);; *)
+    (* t <- tmQuote (list);; *)
     (* t <- tmQuote (@Vector.t);; *)
+
+    (* TODO: param,index,dep have problems with Evars *)
     (* t <- tmQuote (paramTest);; *)
     (* t <- tmQuote (indexTest);; *)
     (* t <- tmQuote (depTest);; *)
+
     (* t <- tmQuote (nonUniTest);; *)
-    t <- tmQuote (nonUniDepTest);;
-    match t with
+    (* t <- tmQuote (nonUniDepTest);; *)
+    t <- tmQuote (implicitTest);;
+
+    (fix f t := match t with
     Ast.tInd ({| inductive_mind := k |} as inductive) uinst => 
     ib <- tmQuoteInductive k;;
     match Env.ind_bodies ib with 
@@ -442,8 +447,9 @@ MetaCoq Run (
     | [] => tmFail "no inductive body found"
     | _ => tmFail "too many inductive bodies (currently, mutual induction is not supported)"
     end
+    | Ast.tApp t _ => f t (* resolve partial evar application *)
     | _ => tmFail "Not an inductive type, maybe try @ind for implicit arguments"
     (* Todo: find inductive if hidden under applications (to evars) *)
-    end
+    end) t
 ).
 Print test.
