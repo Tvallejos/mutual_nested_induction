@@ -193,23 +193,49 @@ Definition createInductionPrinciple (ind_term:term) (ind:one_inductive_body) :=
                 vass (rName ("H_"^ctor.(cstr_name))) 
                 (* TODO: maybe refactor out the lifting offsets for clarity? *)
                 ( (* type of the case assumption (in here lies (part of) the magic of induction) *)
-                    (* lift non-uni params over other cases and over the predicate => directly behind params *)
-                    quantify (lift_context (i+1) 0 non_uni_param_ctx) 
+
+                    (*
+                        each ctor is mapped to 
+                        ∀ non-uni args (possibly IH), P non-uni indices (Ctor params non-uni args)
+                        the parameters are taken from the preamble of the induction lemma
+                        the indice instantiation is taken from the constructor type
+
+                        arguments are possibly augmented with additional inductive hypotheses
+
+                        the constructor type includes quantifications to the parameters and non-uni
+                        and virtually lies under a quantification of the inductive type which is 
+                        represented by a tRel
+                    *)
+
                     (* argument context for the constructor 
                         (how to obtain manually: quantifications of cstr_type without params, non-uni) 
                         the number of args is also cstr_arity *)
-                    (let arg_ctx := ctor.(cstr_args) in
+                    let arg_ctx := ctor.(cstr_args) in
                     (* index instantiation for the conclusion of the ctor 
                         (how to obtain manually: extract of the app from the conclusion of cstr_type) *)
                     let ind_list := ctor.(cstr_indices) in
-                        mkApps ind_term 
+
+                    (* replace floating ind reference (behind params) with inductive type (for arguments) 
+                        at position prev. cases + predicate + params
+                    *)
+                    subst [ind_term] (i+1+#|param_ctx|)
+                    (* lift non-uni params over other cases and over the predicate => directly behind params *)
+                    (
+                        quantify (lift_context (i+1) 0 non_uni_param_ctx) 
+                        (quantify (
+                                (* lift the argument parameter references (everything behind non-uni over cases and predicate) *)
+                                lift_context (i+1) #|non_uni_param_ctx| arg_ctx
+                            ) 
                         (
-                            (* lift over non-uni, other cases and predicate *)
-                            map (lift0 (#|non_uni_param_ctx|+i+1)) (mkRels #|param_ctx|) ++ (* params *)
-                            (* locally quantified non-uni *)
-                            map (lift0 0) (mkRels #|non_uni_param_ctx|) ++ (* non-uni *)
-                            ind_list (* index instantiation *)
-                        )
+                            mkApps ind_term 
+                            (
+                                (* lift over non-uni, other cases and predicate *)
+                                map (lift0 (#|arg_ctx|+#|non_uni_param_ctx|+i+1)) (mkRels #|param_ctx|) ++ (* params *)
+                                (* locally quantified non-uni *)
+                                map (lift0 #|arg_ctx|) (mkRels #|non_uni_param_ctx|) ++ (* non-uni *)
+                                ind_list (* index instantiation *)
+                            )
+                        ))
                     )
                 )
             ) ind.(ind_ctors)
