@@ -58,7 +58,7 @@ Definition context_decl_map (f:term->term) (c:context_decl) :=
 
     (* lift_context *)
 
-Load Test_Types.
+Load test_types.
 
 
 
