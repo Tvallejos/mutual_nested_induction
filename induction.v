@@ -183,11 +183,11 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
     *)
     let case_ctx :=
         (* dummy case: forall non-uni indices inst, P *)
-        [
+        (* [
         vass (rName "H_All")
         (conclusion_type #|ind.(ind_ctors)|) (* lift over predicate *)
         ]
-        ++ 
+        ++  *)
         (rev(
             mapi (fun i ctor => 
                 vass (rName ("H_"^ctor.(cstr_name))) 
@@ -366,12 +366,21 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
                                     (* args is a context (reversed) but we want names in order *)
                                     map decl_name (rev arg_ctx) ;
                                 Ast.bbody := 
-                (
-                    Ast.mkApps 
-                    (Ast.tRel ( #|arg_ctx| + #|predicate_ctx|+1)) (* H_All = args+f *)
-                    (map (Ast.lift0 #|arg_ctx|) (mkAstRels #|predicate_ctx|)) 
-                        (* non-uni *) (* indices *) (* inst *)
-                )
+                                    (
+                                        (* <% I %> *)
+                                        Ast.mkApps
+                                        (* lift over ctor args, inst, indices, non-uni, f => right before fixpoint *)
+                                        (Ast.tRel (#|arg_ctx|+#|predicate_ctx|+1+
+                                                    (#|ind.(ind_ctors)| -i-1)))
+                                        (
+                                        map (Ast.lift0 (#|arg_ctx|+1+#|indice_ctx|)) (mkAstRels #|non_uni_param_ctx|) ++
+                                        mkAstRels #|arg_ctx|
+                                        )
+                                       
+                                        (* (Ast.tRel ( #|arg_ctx| + #|predicate_ctx|+1)) (* H_All = args+f *)
+                                        (map (Ast.lift0 #|arg_ctx|) (mkAstRels #|predicate_ctx|))  *)
+                                            (* non-uni *) (* indices *) (* inst *)
+                                    )
                                 ;
                                 |}
                             ) ind.(ind_ctors)
@@ -428,7 +437,7 @@ MetaCoq Run (
          tmMsg "===Ind lemma===";;
          tmMsg "===============";;
         lemma <- tmEval lazy (createInductionPrinciple inductive uinst mind t);;
-         (* tmPrint lemma;; *) (* this can not be read *)
+         tmPrint lemma;; (* this can not be read *)
          tmMkDefinition "test" lemma
     | [] => tmFail "no inductive body found"
     | _ => tmFail "too many inductive bodies (currently, mutual induction is not supported)"
