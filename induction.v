@@ -94,8 +94,8 @@ forall
 feel free to inspect the git history to see the different stages
 
 *)
-
-Definition createInductionPrinciple (ind_term:term) (ind:one_inductive_body) :=
+Definition createInductionPrinciple inductive uinst (ind:one_inductive_body) :=
+    let ind_term := tInd inductive uinst in
     (* auxiliary definitions (mostly for testing purposes) *)
     let PropQ := TemplateToPCUIC.trans [] <% Prop %> in
     let TrueQ := TemplateToPCUIC.trans [] <% True %> in
@@ -192,6 +192,7 @@ Definition createInductionPrinciple (ind_term:term) (ind:one_inductive_body) :=
             mapi (fun i ctor => 
                 vass (rName ("H_"^ctor.(cstr_name))) 
                 (* TODO: maybe refactor out the lifting offsets for clarity? *)
+                (* TODO: a more functional way would be nested lifting *)
                 ( (* type of the case assumption (in here lies (part of) the magic of induction) *)
 
                     (*
@@ -227,14 +228,34 @@ Definition createInductionPrinciple (ind_term:term) (ind:one_inductive_body) :=
                                 lift_context (i+1) #|non_uni_param_ctx| arg_ctx
                             ) 
                         (
-                            mkApps ind_term 
+                            let ctor_inst :=
+                                mkApps 
+                                    (tConstruct inductive i uinst)
+                                    (
+                                        (* lift over args, non-uni, other cases and predicate *)
+                                        map (lift0 (#|arg_ctx|+#|non_uni_param_ctx|+i+1)) (mkRels #|param_ctx|) ++ (* params *)
+                                        (* locally quantified non-uni behind args *)
+                                        map (lift0 #|arg_ctx|) (mkRels #|non_uni_param_ctx|) ++ (* non-uni *)
+                                        map (lift0 0) (mkRels #|arg_ctx|) (* args *)
+                                    )
+                            in
+                            mkApps 
+                                (* lift over args, non-uni, and other cases *)
+                                (tRel (#|arg_ctx|+#|non_uni_param_ctx|+i)) (* predicate *)
+                                (
+                                    map (lift0 #|arg_ctx|) (mkRels #|non_uni_param_ctx|) ++ (* non-uni *)
+                                    ind_list ++ (* index instantiation *)
+                                    [ctor_inst] (* constructor instance *)
+                                )
+                            (* PropQ *)
+                            (* mkApps ind_term 
                             (
                                 (* lift over non-uni, other cases and predicate *)
                                 map (lift0 (#|arg_ctx|+#|non_uni_param_ctx|+i+1)) (mkRels #|param_ctx|) ++ (* params *)
                                 (* locally quantified non-uni *)
                                 map (lift0 #|arg_ctx|) (mkRels #|non_uni_param_ctx|) ++ (* non-uni *)
                                 ind_list (* index instantiation *)
-                            )
+                            ) *)
                         ))
                     )
                 )
@@ -311,19 +332,26 @@ MetaCoq Run (
     (* t <- tmQuote (nonUniTest);; *)
     t <- tmQuote (nonUniDepTest);;
     match t with
-    Ast.tInd {| inductive_mind := k |} _ => 
+    Ast.tInd ({| inductive_mind := k |} as inductive) uinst => 
     ib <- tmQuoteInductive k;;
     match Env.ind_bodies ib with 
     | [oind] => 
-        let ind_term := TemplateToPCUIC.trans [] t in
         let oindPC := TemplateToPCUIC.trans_one_ind_body [] oind in
         (* let il := getInd oindPC in *)
+         tmMsg "==============";;
+         tmMsg "===Ind term===";;
+         tmMsg "==============";;
+         tmPrint (tInd inductive uinst);;
+         tmMsg "==============";;
+         tmMsg "===Ind type===";;
+         tmMsg "==============";;
         t <- tmEval lazy oindPC;;
          tmPrint t;;
-         tmMsg "----";;
-        lemma <- tmEval lazy (createInductionPrinciple ind_term t);;
-         tmPrint lemma;;
-         (* tmMkDefinition "test" <% 0 %> *)
+         tmMsg "===============";;
+         tmMsg "===Ind lemma===";;
+         tmMsg "===============";;
+        lemma <- tmEval lazy (createInductionPrinciple inductive uinst t);;
+         (* tmPrint lemma;; *) (* this can not be read *)
          tmMkDefinition "test" lemma
     | [] => tmMsg ""
     | _ => tmMsg ""
