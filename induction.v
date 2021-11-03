@@ -39,32 +39,6 @@ Definition hole := TemplateToPCUIC.trans [] hole.
  Print it_mkProd_or_LetIn.
 *)
 
-Inductive paramTest (A:Type) (B:nat) : Type :=.
-Inductive indexTest (A:Type) : nat -> bool -> Type :=.
-Inductive nonUniTest (A:Type) (n:nat) : bool -> Type :=
-    C: forall (H:nonUniTest A (S n) false), nonUniTest A n true.
-
-Inductive depTest (A:Type) (HA: A -> Type) : (forall a, HA a) -> Type :=.
-
-(*
-scheme
-
-forall 
-    params 
-    (P: forall 
-        non-uniform
-        indices,
-        instance ->
-        Prop
-    )
-    cases,
-    forall 
-        non-uni
-        indices,
-        instance ->
-        P ...
-
-*)
 
 (* generates a list tRel (n-1), ..., tRel 0 *)
 Fixpoint mkRels (n:nat) :=
@@ -83,6 +57,44 @@ Definition context_decl_map (f:term->term) (c:context_decl) :=
     (* lift_context *)
 
 
+
+Inductive paramTest (A:Type) (B:nat) : Type :=.
+Inductive indexTest (A:Type) : nat -> bool -> Type :=.
+Inductive nonUniTest (A:Type) (n:nat) : bool -> Type :=
+    | C1: forall (H:nonUniTest A (S n) false), nonUniTest A n true
+    | C2: forall (H:nonUniTest A n true), nonUniTest A n false.
+
+Inductive nonUniDepTest (A:Type) (N:nat) (xs:list A) : bool -> nat -> Type :=
+    | CD1: forall (H1:nonUniDepTest A N [] false 1) (H2:nonUniDepTest A N [] false 0), nonUniDepTest A N xs true 0
+    | CD2: forall (H1:nonUniDepTest A N (xs ++ xs) true 0), nonUniDepTest A N xs false 1.
+
+Inductive depTest (A:Type) (HA: A -> Type) : (forall a, HA a) -> Type :=.
+
+
+
+
+(*
+general scheme
+
+forall 
+    params 
+    (P: forall 
+        non-uniform
+        indices,
+        instance ->
+        Prop
+    )
+    cases,
+    forall 
+        non-uni
+        indices,
+        instance ->
+        P ...
+
+feel free to inspect the git history to see the different stages
+
+*)
+
 Definition createInductionPrinciple (ind_term:term) (ind:one_inductive_body) :=
     (* auxiliary definitions (mostly for testing purposes) *)
     let PropQ := TemplateToPCUIC.trans [] <% Prop %> in
@@ -95,7 +107,7 @@ Definition createInductionPrinciple (ind_term:term) (ind:one_inductive_body) :=
      *)
 
      (* separate params, non-uniform params, and indices *)
-    let non_uniform_param_count := 0 in
+    let non_uniform_param_count := 1 in (* TODO: guess it correctly *)
     let ind_type := ind.(ind_type) in (* type of the inductive *)
     let (ctx,retTy) := decompose_prod_assum [] ind_type in (* get params and indices and inner retTy *)
         (* for list: ctx=[Type], retTy=Type *)
@@ -143,6 +155,9 @@ Definition createInductionPrinciple (ind_term:term) (ind:one_inductive_body) :=
         (alternative implementation2: use holes and quantify for all arguments (holes are not possible in the type))
 
         lastly, compute the correct de Bruijn index of P and apply all quantifications
+
+        conclusion_type k should be equivalent to
+        lift0 k (conclusion_type 0)
      *)
     let conclusion_type predicateDist :=
         (quantify
@@ -160,14 +175,48 @@ Definition createInductionPrinciple (ind_term:term) (ind:one_inductive_body) :=
 
     (*
     the cases for needed for case analysis/induction
+
+    we map with iteration count to keep track of the de Bruijn indices (distance to predicate)
+    reverse is necessary as contexts are in reversed order 
+    (the order of the cases does not matter 
+        but it is less confusing and nicer to look at when they are in correct order)
     *)
     let case_ctx :=
         (* dummy case: forall non-uni indices inst, P *)
         [
         vass (rName "H_All")
-        (conclusion_type 0) (* lift over predicate *)
+        (conclusion_type #|ind.(ind_ctors)|) (* lift over predicate *)
         ]
+        ++ 
+        (rev(
+            mapi (fun i ctor => 
+                vass (rName ("H_"^ctor.(cstr_name))) 
+                (* TODO: maybe refactor out the lifting offsets for clarity? *)
+                ( (* type of the case assumption (in here lies (part of) the magic of induction) *)
+                    (* lift non-uni params over other cases and over the predicate => directly behind params *)
+                    quantify (lift_context (i+1) 0 non_uni_param_ctx) 
+                    (* argument context for the constructor 
+                        (how to obtain manually: quantifications of cstr_type without params, non-uni) 
+                        the number of args is also cstr_arity *)
+                    (let arg_ctx := ctor.(cstr_args) in
+                    (* index instantiation for the conclusion of the ctor 
+                        (how to obtain manually: extract of the app from the conclusion of cstr_type) *)
+                    let ind_list := ctor.(cstr_indices) in
+                        mkApps ind_term 
+                        (
+                            (* lift over non-uni, other cases and predicate *)
+                            map (lift0 (#|non_uni_param_ctx|+i+1)) (mkRels #|param_ctx|) ++ (* params *)
+                            (* locally quantified non-uni *)
+                            map (lift0 0) (mkRels #|non_uni_param_ctx|) ++ (* non-uni *)
+                            ind_list (* index instantiation *)
+                        )
+                    )
+                )
+            ) ind.(ind_ctors)
+        ))
     in
+
+
 
     (*
     build the context of the type for the induction lemma
@@ -233,7 +282,8 @@ MetaCoq Run (
     (* t <- tmQuote (paramTest);; *)
     (* t <- tmQuote (indexTest);; *)
     (* t <- tmQuote (depTest);; *)
-    t <- tmQuote (nonUniTest);;
+    (* t <- tmQuote (nonUniTest);; *)
+    t <- tmQuote (nonUniDepTest);;
     match t with
     Ast.tInd {| inductive_mind := k |} _ => 
     ib <- tmQuoteInductive k;;
