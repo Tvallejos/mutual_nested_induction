@@ -2,7 +2,7 @@ From MetaCoq.Template Require Import All.
 
 From MetaCoq Require Import All.
 Require Import String List.
-Local Open Scope string.
+(* Local Open Scope string. *)
 Import ListNotations MCMonadNotation Nat.
 
 From MetaCoq.PCUIC Require Import 
@@ -41,11 +41,13 @@ Definition hole := TemplateToPCUIC.trans [] hole.
 
 
 (* generates a list tRel (n-1), ..., tRel 0 *)
-Fixpoint mkRels (n:nat) :=
+Fixpoint mkNums (n:nat) :=
     match n with 
     | O => []
-    | S m => [tRel m] ++ mkRels m
+    | S m => [m] ++ mkNums m
     end.
+Fixpoint mkRels (n:nat) := map tRel (mkNums n).
+Fixpoint mkAstRels (n:nat) := map Ast.tRel (mkNums n).
 
 Definition context_decl_map (f:term->term) (c:context_decl) :=
     {|
@@ -56,21 +58,12 @@ Definition context_decl_map (f:term->term) (c:context_decl) :=
 
     (* lift_context *)
 
+Load Test_Types.
 
 
-Inductive paramTest (A:Type) (B:nat) : Type :=.
-Inductive indexTest (A:Type) : nat -> bool -> Type :=.
-Inductive nonUniTest (A:Type) (n:nat) : bool -> Type :=
-    | C1: forall (H:nonUniTest A (S n) false), nonUniTest A n true
-    | C2: forall (H:nonUniTest A n true), nonUniTest A n false.
 
-Inductive nonUniDepTest (A:Type) (N:nat) (xs:list A) : bool -> nat -> Type :=
-    | CD1: forall (H1:nonUniDepTest A N [] false 1) (H2:nonUniDepTest A N [] false 0), nonUniDepTest A N xs true 0
-    | CD2: forall (H1:nonUniDepTest A N (xs ++ xs) true 0), nonUniDepTest A N xs false 1.
-
-Inductive depTest (A:Type) (HA: A -> Type) : (forall a, HA a) -> Type :=.
-
-
+Require Import List.
+Import ListNotations.
 
 
 (*
@@ -94,12 +87,19 @@ forall
 feel free to inspect the git history to see the different stages
 
 *)
-Definition createInductionPrinciple inductive uinst (ind:one_inductive_body) :=
+Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body) (ind:one_inductive_body) :=
     let ind_term := tInd inductive uinst in
     (* auxiliary definitions (mostly for testing purposes) *)
     let PropQ := TemplateToPCUIC.trans [] <% Prop %> in
     let TrueQ := TemplateToPCUIC.trans [] <% True %> in
     let IQ := TemplateToPCUIC.trans [] <% I %> in
+
+    (* the kername of the inductive (module path and name) *)
+    let kn := inductive.(inductive_mind) in
+    (* environment to lookup the inductive for translation from TemplateCoq to PCUIC *)
+    let lookup_env :global_env := [(
+        (kn,InductiveDecl mind)
+    )] in
 
     (* remember: contexts are reversed
         decompose gives contexts
@@ -247,15 +247,6 @@ Definition createInductionPrinciple inductive uinst (ind:one_inductive_body) :=
                                     ind_list ++ (* index instantiation *)
                                     [ctor_inst] (* constructor instance *)
                                 )
-                            (* PropQ *)
-                            (* mkApps ind_term 
-                            (
-                                (* lift over non-uni, other cases and predicate *)
-                                map (lift0 (#|arg_ctx|+#|non_uni_param_ctx|+i+1)) (mkRels #|param_ctx|) ++ (* params *)
-                                (* locally quantified non-uni *)
-                                map (lift0 #|arg_ctx|) (mkRels #|non_uni_param_ctx|) ++ (* non-uni *)
-                                ind_list (* index instantiation *)
-                            ) *)
                         ))
                     )
                 )
@@ -308,6 +299,7 @@ Definition createInductionPrinciple inductive uinst (ind:one_inductive_body) :=
     and prove the induction lemma using a fixpoint over
     the conclusion with a case analysis inside
 
+    tCast only exists in TemplateCoq
     *)
     tCast 
     (PCUICToTemplate.trans
@@ -333,31 +325,76 @@ Definition createInductionPrinciple inductive uinst (ind:one_inductive_body) :=
                 it_mkLambda_or_LetIn 
                 (* lift over f (recursive fixpoint function), cases, predicate *)
                 (lift_context (1 + #|case_ctx| + 1) 0 predicate_ctx)
-                (mkApps 
+
+                (* match
+                    TODO: write what we are doing
+                    the tCase in TemplateCoq is easier than the tCase in PCUIC (too many redundant annotations)
+                *)
+                (
+                (TemplateToPCUIC.trans lookup_env
+                    (Ast.tCase
+                        {|
+                        ci_ind := inductive;
+                        ci_npar := #|all_param_ctx|;
+                        ci_relevance := Relevant
+                        |}
+                        {|
+                        Ast.puinst := uinst;
+                        Ast.pparams := 
+                            map (Ast.lift0 
+                                (* instance, indices, non-uni, f,
+                                   cases, predicate
+                                 *)
+                                (1+#|indice_ctx|+#|non_uni_param_ctx|+1+#|case_ctx|+1)) 
+                                (mkAstRels #|param_ctx|) ++
+                            (* instance and indices to reach non-uni in fix point definition *)
+                            map (Ast.lift0 (1+#|indice_ctx|)) (mkAstRels #|non_uni_param_ctx|)
+                        ;
+                        Ast.pcontext := 
+                            map (fun _ => rAnon) indice_ctx ++
+                            [rName "inst"];
+                            (* there are new binders for the indices and instance in the return type *)
+                        Ast.preturn := Ast.hole (* P holds with non-uni, indices, inst *)
+                        |}
+                        (Ast.tRel 0)
+                        (
+                            (* iteration count for managing which case assumption to call *)
+                            mapi (fun i ctor =>
+                                let arg_ctx := ctor.(cstr_args) in
+                                {|
+                                Ast.bcontext := 
+                                    (* args is a context (reversed) but we want names in order *)
+                                    map decl_name (rev arg_ctx) ;
+                                Ast.bbody := 
+                (
+                    Ast.mkApps 
+                    (Ast.tRel ( #|arg_ctx| + #|predicate_ctx|+1)) (* H_All = args+f *)
+                    (map (Ast.lift0 #|arg_ctx|) (mkAstRels #|predicate_ctx|)) 
+                        (* non-uni *) (* indices *) (* inst *)
+                )
+                                ;
+                                |}
+                            ) ind.(ind_ctors)
+                        )
+                    )
+                ) 
+
+                (* (mkApps 
                     (tRel ( #|predicate_ctx|+1)) (* H_All = args+f *)
                     (mkRels #|predicate_ctx| (* non-uni *) (* indices *) (* inst *)
                     )
-                )
+                ) *)
                 (* IQ *)
+                )
             ; 
             rarg  := #|predicate_ctx| - 1 (* the last argument (instance) is structural recursive *)
             |} ] 0
         )
-        (* (tRel 0) *)
         )
     )
     Cast
     (PCUICToTemplate.trans type).
 
-MetaCoq Quote Definition f :=
-    (fun (n:nat) =>
-    fix f (m:nat) (k:nat) := 
-    match k with 
-    O => true
-    | S l => true && f m l
-    end).
-
-Print f.
     
 
 
@@ -374,6 +411,7 @@ MetaCoq Run (
     ib <- tmQuoteInductive k;;
     match Env.ind_bodies ib with 
     | [oind] => 
+        let mindPC := TemplateToPCUIC.trans_minductive_body [] ib in
         let oindPC := TemplateToPCUIC.trans_one_ind_body [] oind in
         (* let il := getInd oindPC in *)
          tmMsg "==============";;
@@ -383,12 +421,13 @@ MetaCoq Run (
          tmMsg "==============";;
          tmMsg "===Ind type===";;
          tmMsg "==============";;
+        mind <- tmEval lazy mindPC;;
         t <- tmEval lazy oindPC;;
          tmPrint t;;
          tmMsg "===============";;
          tmMsg "===Ind lemma===";;
          tmMsg "===============";;
-        lemma <- tmEval lazy (createInductionPrinciple inductive uinst t);;
+        lemma <- tmEval lazy (createInductionPrinciple inductive uinst mind t);;
          (* tmPrint lemma;; *) (* this can not be read *)
          tmMkDefinition "test" lemma
     | [] => tmFail "no inductive body found"
