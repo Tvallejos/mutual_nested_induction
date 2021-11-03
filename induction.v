@@ -317,10 +317,7 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
             (* TODO: common lifting offset *)
             tFix [ {|
             dname := rName "f";
-            dtype := hole;
-                (* predicate distance are the cases (the type does not see the fixpoint) *)
-            (* conclusion_type (#|case_ctx|) *) 
-                (* TODO: cases are wrong (off by one (too small)) but +1 is index out of bounds *)
+            dtype := conclusion_type (#|case_ctx|); (* hole not possible for types without ctors *)
             dbody := 
                 it_mkLambda_or_LetIn 
                 (* lift over f (recursive fixpoint function), cases, predicate *)
@@ -354,7 +351,21 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
                             map (fun _ => rAnon) indice_ctx ++
                             [rName "inst"];
                             (* there are new binders for the indices and instance in the return type *)
-                        Ast.preturn := Ast.hole (* P holds with non-uni, indices, inst *)
+                        Ast.preturn := 
+                        (* P holds with non-uni, indices, inst *)
+                        (* Ast.hole not possible for types without ctors *)
+                        Ast.mkApps 
+                        (* local instance, indices, fix point arguments,f  *)
+                        (Ast.tRel (1+#|indice_ctx|+#|predicate_ctx|+1+#|case_ctx|))
+                        (
+                            (* lift over instance, indices, instance (fix), indices (fix) *)
+                            map (Ast.lift0 (1+#|indice_ctx|+1+#|indice_ctx|)) (mkAstRels #|non_uni_param_ctx|) ++
+                            (* lift over instance *)
+                            map (Ast.lift0 1) (mkAstRels #|indice_ctx|) ++
+                            (* instance *)
+                            [Ast.tRel 0]
+                        )
+
                         |}
                         (Ast.tRel 0)
                         (
@@ -404,21 +415,17 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
     Cast
     (PCUICToTemplate.trans type).
 
-    
-
-
 MetaCoq Run (
-    (* t <- tmQuote (list);; *)
+    t <- tmQuote (list);;
     (* t <- tmQuote (@Vector.t);; *)
 
-    (* TODO: param,index,dep have problems with Evars *)
     (* t <- tmQuote (paramTest);; *)
     (* t <- tmQuote (indexTest);; *)
     (* t <- tmQuote (depTest);; *)
+    (* t <- tmQuote (implicitTest);; *)
 
     (* t <- tmQuote (nonUniTest);; *)
     (* t <- tmQuote (nonUniDepTest);; *)
-    t <- tmQuote (implicitTest);;
 
     (fix f t := match t with
     Ast.tInd ({| inductive_mind := k |} as inductive) uinst => 
@@ -449,7 +456,6 @@ MetaCoq Run (
     end
     | Ast.tApp t _ => f t (* resolve partial evar application *)
     | _ => tmFail "Not an inductive type, maybe try @ind for implicit arguments"
-    (* Todo: find inductive if hidden under applications (to evars) *)
     end) t
 ).
 Print test.
