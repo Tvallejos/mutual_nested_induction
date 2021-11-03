@@ -291,9 +291,7 @@ Definition createInductionPrinciple inductive uinst (ind:one_inductive_body) :=
      *)
     let type := 
         it_mkProd_or_LetIn argument_ctx
-        (conclusion_type (#|case_ctx|) ) 
-        (* (conclusion_type (1 + #|case_ctx|) )  *)
-        (* lift over predicate and cases *)
+        (conclusion_type #|case_ctx| )  (* lift over cases to get to predicate position *)
     in 
 
     (*
@@ -315,11 +313,51 @@ Definition createInductionPrinciple inductive uinst (ind:one_inductive_body) :=
     (PCUICToTemplate.trans
         (it_mkLambda_or_LetIn
         argument_ctx
-        (tRel 0)
+        (
+            (*
+            the proof of induction is by case analysis on the inductive instance
+            followed by application of the corresponding case
+
+            we need a fixpoint for induction hypotheses which need smaller proofs
+            *)
+
+            (* take non-uni indices inst (all args for predicate => predicate context) *)
+            (* TODO: common lifting offset *)
+            tFix [ {|
+            dname := rName "f";
+            dtype := hole;
+                (* predicate distance are the cases (the type does not see the fixpoint) *)
+            (* conclusion_type (#|case_ctx|) *) 
+                (* TODO: cases are wrong (off by one (too small)) but +1 is index out of bounds *)
+            dbody := 
+                it_mkLambda_or_LetIn 
+                (* lift over f (recursive fixpoint function), cases, predicate *)
+                (lift_context (1 + #|case_ctx| + 1) 0 predicate_ctx)
+                (mkApps 
+                    (tRel ( #|predicate_ctx|+1)) (* H_All = args+f *)
+                    (mkRels #|predicate_ctx| (* non-uni *) (* indices *) (* inst *)
+                    )
+                )
+                (* IQ *)
+            ; 
+            rarg  := #|predicate_ctx| - 1 (* the last argument (instance) is structural recursive *)
+            |} ] 0
+        )
+        (* (tRel 0) *)
         )
     )
     Cast
     (PCUICToTemplate.trans type).
+
+MetaCoq Quote Definition f :=
+    (fun (n:nat) =>
+    fix f (m:nat) (k:nat) := 
+    match k with 
+    O => true
+    | S l => true && f m l
+    end).
+
+Print f.
     
 
 
