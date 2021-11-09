@@ -490,6 +490,11 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
                                     map decl_name (rev arg_ctx) ;
                                 Ast.bbody := 
                                     (
+                                        (*
+                                        #|arg_ctx| = number of arguments of the ctor
+                                        #|predicate_ctx| = inst+indices+non-uni (arguments of f)
+                                        *)
+
                                         (* <% I %> *)
 
                                         (* lift over ctor args, inst, indices, non-uni, f => right before fixpoint *)
@@ -507,13 +512,13 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
                                         (map (Ast.lift0 #|arg_ctx|) (mkAstRels #|predicate_ctx|))  *)
                                             (* non-uni *) (* indices *) (* inst *)
 
-                                        AstPlaceholder
+                                        (* AstPlaceholder *)
 
-                                        (* let aug_args := augmented_args arg_ctx in (* virtually behind ∀ Params P. • *)
+                                        let aug_args := augmented_args arg_ctx in (* virtually behind ∀ Params P. • *)
 
                                         Ast.mkApps
                                         (Ast.tRel (#|arg_ctx|+#|predicate_ctx|+1+
-                                                    (#|case_ctx| -i-1)))
+                                                    (#|case_ctx| -i-1))) (* H_ctor *)
                                         (
                                             map (Ast.lift0 (#|arg_ctx|+1+#|indice_ctx|)) (mkAstRels #|non_uni_param_ctx|) ++
                                             (* mkAstRels #|arg_ctx| *)
@@ -524,13 +529,22 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
                                                     | Argument _ => 
                                                         (i+1,Ast.tRel i::rels)
                                                     | IH _ => 
-                                                        (i,<% I %> :: rels)
+                                                        (i,
+                                                        (
+                                                            Ast.mkApps 
+                                                            (Ast.tRel (#|arg_ctx| + #|predicate_ctx|)) (* f *)
+                                                            (
+                                                                map (fun _ => Ast.hole) (mkNums #|non_uni_param_ctx|) ++
+                                                                map (fun _ => Ast.hole) (mkNums #|indice_ctx|) ++
+                                                                [Ast.tRel i] (* corresponding recursive instance *)
+                                                            )
+                                                        ) :: rels)
                                                     end
                                                 )
                                                 (0,[])
                                                 aug_args
                                             )
-                                        ) *)
+                                        )
 
                                     )
                                 ;
