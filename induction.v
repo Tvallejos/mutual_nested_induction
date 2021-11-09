@@ -23,6 +23,14 @@ Definition rName n := relevant_binder (nNamed n).
 
 Definition hole := TemplateToPCUIC.trans [] hole.
 
+Definition extendName prefix (n:name) suffix :=
+    match n with 
+    | nAnon => nAnon
+    | nNamed id => nNamed (prefix^id^suffix)
+    end.
+Definition extendAname prefix n suffix:= 
+    map_binder_annot (fun n => extendName prefix n suffix) n.
+
 
 (* Search Env.one_inductive_body. *)
 
@@ -58,12 +66,37 @@ Definition context_decl_map (f:term->term) (c:context_decl) :=
 
     (* lift_context *)
 
-Load test_types.
 
 
 
 Require Import List.
 Import ListNotations.
+
+Variable (TODO: forall {T}, T).
+
+(* Print BasicAst.context_decl. *)
+Definition annotated_context T := list (T*BasicAst.context_decl term).
+Inductive assumption_type {T} :=
+    | Argument (asm:T) | IH (asm:T).
+(* Alternative: use Argument (t:term) or Argument (c:context_decl) *)
+
+(*
+The argument is an argument list => not reversed 
+    (but in correct order like you write it in the definition of the constructor)
+*)
+Fixpoint augment_arguments xs : list (@assumption_type (BasicAst.context_decl term)) := 
+    (* map (Argument _) xs. (* Do nothing => case analysis *) *)
+    fold_right
+    (fun arg ys =>
+        Argument arg ::
+        (IH (vass (extendAname "" arg.(decl_name) "IH_") (TemplateToPCUIC.trans [] <% True %>))) ::
+        ys
+    )
+    []
+    xs.
+
+(* adds quantification of context around body *)
+Definition quantify ctx body := it_mkProd_or_LetIn ctx body.
 
 
 (*
@@ -93,6 +126,8 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
     let PropQ := TemplateToPCUIC.trans [] <% Prop %> in
     let TrueQ := TemplateToPCUIC.trans [] <% True %> in
     let IQ := TemplateToPCUIC.trans [] <% I %> in
+    let AstPlaceholder := Ast.mkApp <% @TODO %> (Ast.hole) in
+    let placeholder := TemplateToPCUIC.trans [] AstPlaceholder in
 
     (* the kername of the inductive (module path and name) *)
     let kn := inductive.(inductive_mind) in
@@ -116,8 +151,6 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
     let non_uni_param_ctx := firstn non_uniform_param_count all_param_ctx in (* non-uniform are behind => at the front *)
     let param_ctx := skipn #|non_uni_param_ctx| all_param_ctx in 
 
-    (* adds quantification of context around body *)
-    let quantify ctx body := it_mkProd_or_LetIn ctx body in
 
     (* construct the quantifications in the predicate
        these are all non-uniform parameters, the indices, and 
@@ -181,6 +214,17 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
     (the order of the cases does not matter 
         but it is less confusing and nicer to look at when they are in correct order)
     *)
+
+    (* takes argument context (that is given in constructor) in normal view => behind parameters *)
+    (* the result is a list **not** a context (=> it is in the correct order as you would write it) *)
+    let augmented_args arg_ctx := 
+        (* internal viewpoint: ∀ params P. • <- here *)
+        (*   if this viewpoint is not met, you have to lift the resulting term after using the augmented arguments *)
+        (* lift over P *)
+        let arg_list := rev (lift_context 1 0 arg_ctx) in (* ind is tRel (param+1) the +1 to lift over P *)
+        augment_arguments arg_list 
+    in
+
     let case_ctx :=
         (* dummy case: forall non-uni indices inst, P *)
         (* [
@@ -222,32 +266,46 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
                     subst [ind_term] (i+1+#|param_ctx|)
                     (* lift non-uni params over other cases and over the predicate => directly behind params *)
                     (
-                        quantify (lift_context (i+1) 0 non_uni_param_ctx) 
-                        (quantify (
-                                (* lift the argument parameter references (everything behind non-uni over cases and predicate) *)
-                                lift_context (i+1) #|non_uni_param_ctx| arg_ctx
-                            ) 
-                        (
-                            let ctor_inst :=
+                        (* lift over other cases for easier view *)
+                        lift0 i (
+                            (* viewpoint: ∀ params P. • <- here *)
+
+                            (* lift over P *)
+                            quantify (lift_context 1 0 non_uni_param_ctx)
+                            (fold_right
+                            (fun arg t =>
+                                (* arg of type assumption_type *)
+                                match arg with
+                                | Argument x => mkProd_or_LetIn x t
+                                | IH y => 
+                                    mkProd_or_LetIn y (lift0 1 t) (* lift everything over new assumptions *)
+                                end
+                            )
+                            (
+                            (* the innerbody under ∀ non-uni args (augmented). • *)
+                                let ctor_inst :=
+                                    mkApps 
+                                        (tConstruct inductive i uinst)
+                                        (
+                                            (* lift over args, non-uni, and predicate *)
+                                            map (lift0 (#|arg_ctx|+#|non_uni_param_ctx|+1)) (mkRels #|param_ctx|) ++ (* params *)
+                                            (* locally quantified non-uni behind args *)
+                                            map (lift0 #|arg_ctx|) (mkRels #|non_uni_param_ctx|) ++ (* non-uni *)
+                                            map (lift0 0) (mkRels #|arg_ctx|) (* args *)
+                                        )
+                                in
                                 mkApps 
-                                    (tConstruct inductive i uinst)
+                                    (* lift over args, non-uni *)
+                                    (tRel (#|arg_ctx|+#|non_uni_param_ctx|)) (* predicate *)
                                     (
-                                        (* lift over args, non-uni, other cases and predicate *)
-                                        map (lift0 (#|arg_ctx|+#|non_uni_param_ctx|+i+1)) (mkRels #|param_ctx|) ++ (* params *)
-                                        (* locally quantified non-uni behind args *)
                                         map (lift0 #|arg_ctx|) (mkRels #|non_uni_param_ctx|) ++ (* non-uni *)
-                                        map (lift0 0) (mkRels #|arg_ctx|) (* args *)
+                                        (* lift over P to reach params *)
+                                        map (lift 1 (#|arg_ctx|+#|non_uni_param_ctx|) ) ind_list ++ (* index instantiation *)
+                                        [ctor_inst] (* constructor instance *)
                                     )
-                            in
-                            mkApps 
-                                (* lift over args, non-uni, and other cases *)
-                                (tRel (#|arg_ctx|+#|non_uni_param_ctx|+i)) (* predicate *)
-                                (
-                                    map (lift0 #|arg_ctx|) (mkRels #|non_uni_param_ctx|) ++ (* non-uni *)
-                                    ind_list ++ (* index instantiation *)
-                                    [ctor_inst] (* constructor instance *)
-                                )
-                        ))
+                            )
+                            (augmented_args arg_ctx))
+                        )
                     )
                 )
             ) ind.(ind_ctors)
@@ -266,7 +324,7 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
     (this distinction becomes clear in the proof where we build a fixpoint over the
     arguments in the conclusion)
     *)
-    let argument_ctx := (* contexts are reversed lists *)
+    let lemma_argument_ctx := (* contexts are reversed lists *)
         case_ctx ++
         [vass (rName "P") predicate_type] ++
         param_ctx (* quantify params *)
@@ -281,7 +339,7 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
        P non-uni indices h
      *)
     let type := 
-        it_mkProd_or_LetIn argument_ctx
+        it_mkProd_or_LetIn lemma_argument_ctx
         (conclusion_type #|case_ctx| )  (* lift over cases to get to predicate position *)
     in 
 
@@ -304,7 +362,7 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
     tCast 
     (PCUICToTemplate.trans
         (it_mkLambda_or_LetIn
-        argument_ctx
+        lemma_argument_ctx
         (
             (*
             the proof of induction is by case analysis on the inductive instance
@@ -367,7 +425,7 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
                         )
 
                         |}
-                        (Ast.tRel 0)
+                        (Ast.tRel 0) (* match over inductive instance in fix *)
                         (
                             (* iteration count for managing which case assumption to call *)
                             mapi (fun i ctor =>
@@ -379,18 +437,47 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
                                 Ast.bbody := 
                                     (
                                         (* <% I %> *)
-                                        Ast.mkApps
+
                                         (* lift over ctor args, inst, indices, non-uni, f => right before fixpoint *)
+                                        (* Ast.mkApps
                                         (Ast.tRel (#|arg_ctx|+#|predicate_ctx|+1+
-                                                    (#|ind.(ind_ctors)| -i-1)))
+                                                    (#|case_ctx| -i-1)))
                                         (
                                         map (Ast.lift0 (#|arg_ctx|+1+#|indice_ctx|)) (mkAstRels #|non_uni_param_ctx|) ++
                                         mkAstRels #|arg_ctx|
-                                        )
-                                       
-                                        (* (Ast.tRel ( #|arg_ctx| + #|predicate_ctx|+1)) (* H_All = args+f *)
+                                        ) *)
+
+
+                                       (* Ast.mkApps
+                                        (Ast.tRel ( #|arg_ctx| + #|predicate_ctx|+1)) (* H_All = args+f *)
                                         (map (Ast.lift0 #|arg_ctx|) (mkAstRels #|predicate_ctx|))  *)
                                             (* non-uni *) (* indices *) (* inst *)
+
+                                        (* AstPlaceholder *)
+
+                                        let aug_args := augmented_args arg_ctx in (* virtually behind ∀ Params P. • *)
+
+                                        Ast.mkApps
+                                        (Ast.tRel (#|arg_ctx|+#|predicate_ctx|+1+
+                                                    (#|case_ctx| -i-1)))
+                                        (
+                                            map (Ast.lift0 (#|arg_ctx|+1+#|indice_ctx|)) (mkAstRels #|non_uni_param_ctx|) ++
+                                            (* mkAstRels #|arg_ctx| *)
+                                            snd (
+                                                fold_right
+                                                (fun arg '(i,rels) =>
+                                                    match arg with
+                                                    | Argument _ => 
+                                                        (i+1,Ast.tRel i::rels)
+                                                    | IH _ => 
+                                                        (i,<% I %> :: rels)
+                                                    end
+                                                )
+                                                (0,[])
+                                                aug_args
+                                            )
+                                        )
+
                                     )
                                 ;
                                 |}
@@ -415,8 +502,9 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
     Cast
     (PCUICToTemplate.trans type).
 
+Load test_types.
 MetaCoq Run (
-    t <- tmQuote (list);;
+    (* t <- tmQuote (list);; *)
     (* t <- tmQuote (@Vector.t);; *)
 
     (* t <- tmQuote (paramTest);; *)
@@ -425,7 +513,7 @@ MetaCoq Run (
     (* t <- tmQuote (implicitTest);; *)
 
     (* t <- tmQuote (nonUniTest);; *)
-    (* t <- tmQuote (nonUniDepTest);; *)
+    t <- tmQuote (nonUniDepTest);;
 
     (fix f t := match t with
     Ast.tInd ({| inductive_mind := k |} as inductive) uinst => 
