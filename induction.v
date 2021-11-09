@@ -21,7 +21,8 @@ Definition relevant_binder (n:name) :=
 Definition rAnon := relevant_binder nAnon.
 Definition rName n := relevant_binder (nNamed n).
 
-Definition hole := TemplateToPCUIC.trans [] hole.
+(* Definition hole := TemplateToPCUIC.trans [] hole. *)
+Definition hole := tEvar fresh_evar_id [].
 
 Definition extendName prefix (n:name) suffix :=
     match n with 
@@ -80,6 +81,26 @@ Inductive assumption_type {T} :=
 
 Variant creation_mode := IHAssumption | IHProof.
 
+
+
+    (* TODO: there once was a function doing this already (was it mkApp in a previous version?) *)
+Definition mkEagerApp (a:term) (b:term) : term :=
+    match a with 
+    (* we completely ignore the type of the lambda as we might eliminate an error or at least do not introduce one *)
+    | tLambda na _ body =>
+        body {0:=b}
+    | _ => tApp a b 
+    end.
+
+Fixpoint mkEagerApps (t:term) (us:list term) : term :=
+    match us with
+    | [] => t
+    | u::ur => mkEagerApps (mkEagerApp t u) ur
+    end.
+
+    Locate "_ { _ := _ }".
+
+
     (*
     
     output:
@@ -90,10 +111,9 @@ Variant creation_mode := IHAssumption | IHProof.
                 or fix point function for proof
 
     TODO: lift contexts, ind_pos, call_pos
+
+    explain
     *)
-
-(* Local Instance option_moad. *)
-
 Fixpoint create_induction_hypothesis (mode:creation_mode) (param_ctx non_uni_param_ctx indice_ctx:context) (ind_pos call_pos:nat) (t:term) : option term :=
     match t with 
     | tRel p =>
@@ -113,6 +133,21 @@ Fixpoint create_induction_hypothesis (mode:creation_mode) (param_ctx non_uni_par
             ret (tApp s hole)
         else
             ret (tApp s b)
+    | tProd na ty b =>
+        s <- create_induction_hypothesis mode 
+            (lift_context 1 0 param_ctx) 
+            (lift_context 1 0 non_uni_param_ctx) 
+            (lift_context 1 0 indice_ctx) 
+            (S ind_pos) (S call_pos) b;;
+    (* TODO: proof *)
+        ret(tLambda rAnon (hole) (* hole is here not possible but we use eager beta reduction *)
+        (
+            (* lift for sacrificial lambda *)
+            tProd na (lift0 1 ty)
+            (mkEagerApps 
+            (lift 1 1 s) (* lift behind na over sacrificial lambda *)
+            [mkApps (tRel 1) [tRel 0]]) (* arg a *)
+        ))
     | _ => None
     end.
 
@@ -142,7 +177,7 @@ Definition augment_arguments (param_ctx non_uni_param_ctx indice_ctx:context) xs
         let IHs := 
             if asm is (Some asm_body) then
                 (* lift over argument *)
-                [hyp arg (mkApps (lift0 1 asm_body) [tRel 0])]
+                [hyp arg (mkEagerApps (lift0 1 asm_body) [tRel 0])]
                 (* [dummyIH arg] *)
                 (* [] *)
             else 
