@@ -71,6 +71,7 @@ Definition context_decl_map (f:term->term) (c:context_decl) :=
 
 Require Import List.
 Import ListNotations.
+Import IfNotations.
 
 Variable (TODO: forall {T}, T).
 
@@ -84,16 +85,67 @@ Inductive assumption_type {T} :=
 The argument is an argument list => not reversed 
     (but in correct order like you write it in the definition of the constructor)
 *)
-Fixpoint augment_arguments xs : list (@assumption_type (BasicAst.context_decl term)) := 
+(* internal viewpoint: ∀ params P non_uni. • <- here *)
+Definition augment_arguments (param_ctx non_uni_param_ctx indice_ctx:context) xs : list (@assumption_type (BasicAst.context_decl term)) := 
+    let hyp arg t := IH (vass (extendAname "" arg.(decl_name) "IH_") t) in
+
+    let dummyIH (arg:context_decl) := 
+        hyp arg (TemplateToPCUIC.trans [] <% True %>) in
+
+    let normIH (arg:context_decl) i := 
+        let (inner,arguments) := decompose_app arg.(decl_type) in
+
+        hyp arg (
+            mkApps 
+            (tRel (i+1+#|non_uni_param_ctx|))  (* P *)
+            (
+                (* in theory we want to use holes to infer the instantiation of non-uni params and indices 
+                     this is however not possible as we are constructing the type right now *)
+
+                (* (map (fun _ => hole) (mkNums #|non_uni_param_ctx|)) ++
+                (map (fun _ => hole) (mkNums #|indice_ctx|)) ++ *)
+
+                (* lift over the corresponding argument tRel 0 *)
+                map (lift0 1) (skipn #|param_ctx| arguments) ++
+
+                [tRel 0] (* the recursive argument *)
+            )
+        )
+        in
+
+    
     (* map (Argument _) xs. (* Do nothing => case analysis *) *)
-    fold_right
+    fold_left_i
+    (fun assumptions i arg =>
+        (* behind params and P *)
+        let ind_pos := #|param_ctx|+#|non_uni_param_ctx|+1+i in (* virtual position of the inductive type represented by tRel in the ctor arguments *) 
+       
+        let (inner,_) := decompose_app arg.(decl_type) in
+        let IHs := 
+            if inner is (tRel p) then
+                if p =? ind_pos then
+                    [normIH arg i]
+                    (* [dummyIH arg] *)
+                    (* [] *)
+                else []
+            else 
+                []
+        in
+        (* let IHs := [] in *)
+
+        assumptions++[Argument arg]++IHs
+    )
+    xs
+    [].
+
+    (* fold_right
     (fun arg ys =>
         Argument arg ::
         (IH (vass (extendAname "" arg.(decl_name) "IH_") (TemplateToPCUIC.trans [] <% True %>))) ::
         ys
     )
     []
-    xs.
+    xs. *)
 
 (* adds quantification of context around body *)
 Definition quantify ctx body := it_mkProd_or_LetIn ctx body.
@@ -142,7 +194,7 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
      *)
 
      (* separate params, non-uniform params, and indices *)
-    let non_uniform_param_count := 0 in (* TODO: guess it correctly *)
+    let non_uniform_param_count := 1 in (* TODO: guess it correctly *)
     let ind_type := ind.(ind_type) in (* type of the inductive *)
     let (ctx,retTy) := decompose_prod_assum [] ind_type in (* get params and indices and inner retTy *)
         (* for list: ctx=[Type], retTy=Type *)
@@ -218,11 +270,11 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
     (* takes argument context (that is given in constructor) in normal view => behind parameters *)
     (* the result is a list **not** a context (=> it is in the correct order as you would write it) *)
     let augmented_args arg_ctx := 
-        (* internal viewpoint: ∀ params P. • <- here *)
+        (* internal viewpoint: ∀ params P non_uni. • <- here *)
         (*   if this viewpoint is not met, you have to lift the resulting term after using the augmented arguments *)
         (* lift over P *)
-        let arg_list := rev (lift_context 1 0 arg_ctx) in (* ind is tRel (param+1) the +1 to lift over P *)
-        augment_arguments arg_list 
+        let arg_list := rev (lift_context 1 #|non_uni_param_ctx| arg_ctx) in (* ind is tRel (param+1) the +1 to lift over P *)
+        augment_arguments param_ctx non_uni_param_ctx indice_ctx arg_list 
     in
 
     let case_ctx :=
@@ -304,7 +356,9 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
                                         [ctor_inst] (* constructor instance *)
                                     )
                             )
-                            (augmented_args arg_ctx))
+                            (augmented_args arg_ctx)
+                            (* (map Argument (rev (lift_context 1 #|non_uni_param_ctx| arg_ctx))) *)
+                            )
                         )
                     )
                 )
@@ -453,9 +507,9 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
                                         (map (Ast.lift0 #|arg_ctx|) (mkAstRels #|predicate_ctx|))  *)
                                             (* non-uni *) (* indices *) (* inst *)
 
-                                        (* AstPlaceholder *)
+                                        AstPlaceholder
 
-                                        let aug_args := augmented_args arg_ctx in (* virtually behind ∀ Params P. • *)
+                                        (* let aug_args := augmented_args arg_ctx in (* virtually behind ∀ Params P. • *)
 
                                         Ast.mkApps
                                         (Ast.tRel (#|arg_ctx|+#|predicate_ctx|+1+
@@ -476,7 +530,7 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
                                                 (0,[])
                                                 aug_args
                                             )
-                                        )
+                                        ) *)
 
                                     )
                                 ;
