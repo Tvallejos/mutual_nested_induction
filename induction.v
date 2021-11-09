@@ -78,6 +78,45 @@ Variable (TODO: forall {T}, T).
 Inductive assumption_type {T} :=
     | Argument (asm:T) | IH (asm:T).
 
+Variant creation_mode := IHAssumption | IHProof.
+
+    (*
+    
+    output:
+    fun p_pos -> lambda arg. proof
+    fun f_pos -> lambda arg. proof
+
+    call_pos - either predicate for Assumption
+                or fix point function for proof
+
+    TODO: lift contexts, ind_pos, call_pos
+    *)
+
+(* Local Instance option_moad. *)
+
+Fixpoint create_induction_hypothesis (mode:creation_mode) (param_ctx non_uni_param_ctx indice_ctx:context) (ind_pos call_pos:nat) (t:term) : option term :=
+    match t with 
+    | tRel p =>
+        if p =? ind_pos then
+            (* skip parameters and shift call_pos accordingly to sacrificial lambdas *)
+            (* holes only possible for proof *)
+            if mode is IHProof then
+                (* not necessary but saves from having trouble with liftings *)
+                ret (it_mkLambda_or_LetIn (map_context (fun _ => hole) param_ctx) (tRel (#|param_ctx|+call_pos)))
+            else
+                ret (it_mkLambda_or_LetIn param_ctx (tRel (#|param_ctx|+call_pos)))
+        else 
+            None
+    | tApp a b =>
+        s <- create_induction_hypothesis mode param_ctx non_uni_param_ctx indice_ctx ind_pos call_pos a;;
+        if mode is IHProof then
+            ret (tApp s hole)
+        else
+            ret (tApp s b)
+    | _ => None
+    end.
+
+
 (*
 The argument is an argument list => not reversed 
     (but in correct order like you write it in the definition of the constructor)
@@ -89,40 +128,23 @@ Definition augment_arguments (param_ctx non_uni_param_ctx indice_ctx:context) xs
     let dummyIH (arg:context_decl) := 
         hyp arg (TemplateToPCUIC.trans [] <% True %>) in
 
-    let normIH (arg:context_decl) i := 
-        let (inner,arguments) := decompose_app arg.(decl_type) in
-
-        hyp arg (
-            mkApps 
-            (tRel (i+1+#|non_uni_param_ctx|))  (* P *)
-            (
-                (* in theory we want to use holes to infer the instantiation of non-uni params and indices 
-                     this is however not possible as we are constructing the type right now *)
-                (* lift over the corresponding argument tRel 0 *)
-                map (lift0 1) (skipn #|param_ctx| arguments) ++
-
-                [tRel 0] (* the recursive argument *)
-            )
-        )
-        in
-
     (* map (Argument _) xs. (* Do nothing => case analysis *) 
         same as IHs := []
     *)
     
     fold_left_i
     (fun assumptions i arg =>
-        (* behind params and P *)
-        let ind_pos := #|param_ctx|+#|non_uni_param_ctx|+1+i in (* virtual position of the inductive type represented by tRel in the ctor arguments *) 
+        (* behind params, P, and non-uni *)
+        let ind_pos := #|param_ctx|+1+#|non_uni_param_ctx|+i in (* virtual position of the inductive type represented by tRel in the ctor arguments *) 
+        let pred_pos := #|non_uni_param_ctx|+i in
+        let asm := create_induction_hypothesis IHAssumption param_ctx non_uni_param_ctx indice_ctx ind_pos pred_pos arg.(decl_type) in
        
-        let (inner,_) := decompose_app arg.(decl_type) in
         let IHs := 
-            if inner is (tRel p) then
-                if p =? ind_pos then
-                    [normIH arg i]
-                    (* [dummyIH arg] *)
-                    (* [] *)
-                else []
+            if asm is (Some asm_body) then
+                (* lift over argument *)
+                [hyp arg (mkApps (lift0 1 asm_body) [tRel 0])]
+                (* [dummyIH arg] *)
+                (* [] *)
             else 
                 []
         in
@@ -477,9 +499,9 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
                                         #|predicate_ctx| = inst+indices+non-uni (arguments of f)
                                         *)
 
-                                        (* AstPlaceholder *)
+                                        AstPlaceholder
 
-                                        let aug_args := augmented_args arg_ctx in (* virtually behind ∀ Params P. • *)
+                                        (* let aug_args := augmented_args arg_ctx in (* virtually behind ∀ Params P. • *)
 
                                         Ast.mkApps
                                         (Ast.tRel (#|arg_ctx|+#|predicate_ctx|+1+
@@ -508,7 +530,7 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
                                                 (0,[])
                                                 aug_args
                                             )
-                                        )
+                                        ) *)
 
                                     )
                                 ;
