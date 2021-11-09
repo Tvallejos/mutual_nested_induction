@@ -31,55 +31,52 @@ Definition extendName prefix (n:name) suffix :=
 Definition extendAname prefix n suffix:= 
     map_binder_annot (fun n => extendName prefix n suffix) n.
 
-
-(* Search Env.one_inductive_body. *)
-
-(* Search (list term) termRR *)
-
 (*
- arguments
- decompose_apps
- decompose_prod
-    (* let '(names, types, body) := decompose_prod ind_type in *)
+Important things to know for de Bruijn indices:
 
- mkApps
+The general shape of the induction lemma is:
+∀ Params (P: ∀ Non-uni Indices (Inst: Ind params non-uni indices) -> Prop),
+(H_ctor: ∀ non-uni args (possible IHs), P non-uni indice-inst (Ctor params non-uni args)) ->
+∀ Non-uni Indices (Inst: Ind params non-uni indices), P non-uni indices inst :=
+    λ Params P H_ctor.
+    fix f non-uni indices inst : P non-uni indices inst :=
+    match inst as i in (ind _ _ indices) return P non-uni _ i with
+    | Ctor args => H_ctor non-uni args (proofs)
+    end
 
- Print it_mkProd_or_LetIn.
+A constructor of an inductive type of the form args -> conclusion (where conclusion is 'ind params non-uni indices')
+is represented as:
+Ind -> Params -> Non-uni -> Args -> tApp (tRel ...) ...
+the inductive is virtually quantified behind the params and all params (including non-uni) are quantified before args
+(and taken by lambdas in the one_inductive_body fields)
+
+other edge cases like the lambdas in the return of a match or
+the lambdas in fix point declarations are explained at the corresponding positions
 *)
 
 
-(* generates a list tRel (n-1), ..., tRel 0 *)
+
+(* generates a list (n-1), ..., 0 *)
 Fixpoint mkNums (n:nat) :=
     match n with 
     | O => []
     | S m => [m] ++ mkNums m
     end.
+(* generates a list tRel (n-1), ..., tRel 0 *)
 Fixpoint mkRels (n:nat) := map tRel (mkNums n).
 Fixpoint mkAstRels (n:nat) := map Ast.tRel (mkNums n).
-
-Definition context_decl_map (f:term->term) (c:context_decl) :=
-    {|
-    decl_name := c.(decl_name);
-    decl_body := option_map f c.(decl_body);
-    decl_type := f c.(decl_type)
-    |}.
-
-    (* lift_context *)
-
-
-
 
 Require Import List.
 Import ListNotations.
 Import IfNotations.
 
+(* can be quoted as more powerful hole (coq does not need to fill it in)
+    only for testing/debugging purposes
+ *)
 Variable (TODO: forall {T}, T).
 
-(* Print BasicAst.context_decl. *)
-Definition annotated_context T := list (T*BasicAst.context_decl term).
 Inductive assumption_type {T} :=
     | Argument (asm:T) | IH (asm:T).
-(* Alternative: use Argument (t:term) or Argument (c:context_decl) *)
 
 (*
 The argument is an argument list => not reversed 
@@ -101,10 +98,6 @@ Definition augment_arguments (param_ctx non_uni_param_ctx indice_ctx:context) xs
             (
                 (* in theory we want to use holes to infer the instantiation of non-uni params and indices 
                      this is however not possible as we are constructing the type right now *)
-
-                (* (map (fun _ => hole) (mkNums #|non_uni_param_ctx|)) ++
-                (map (fun _ => hole) (mkNums #|indice_ctx|)) ++ *)
-
                 (* lift over the corresponding argument tRel 0 *)
                 map (lift0 1) (skipn #|param_ctx| arguments) ++
 
@@ -113,8 +106,10 @@ Definition augment_arguments (param_ctx non_uni_param_ctx indice_ctx:context) xs
         )
         in
 
+    (* map (Argument _) xs. (* Do nothing => case analysis *) 
+        same as IHs := []
+    *)
     
-    (* map (Argument _) xs. (* Do nothing => case analysis *) *)
     fold_left_i
     (fun assumptions i arg =>
         (* behind params and P *)
@@ -138,17 +133,8 @@ Definition augment_arguments (param_ctx non_uni_param_ctx indice_ctx:context) xs
     xs
     [].
 
-    (* fold_right
-    (fun arg ys =>
-        Argument arg ::
-        (IH (vass (extendAname "" arg.(decl_name) "IH_") (TemplateToPCUIC.trans [] <% True %>))) ::
-        ys
-    )
-    []
-    xs. *)
-
 (* adds quantification of context around body *)
-Definition quantify ctx body := it_mkProd_or_LetIn ctx body.
+Notation quantify:= (it_mkProd_or_LetIn)(only parsing).
 
 
 (*
@@ -181,6 +167,7 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
     let AstPlaceholder := Ast.mkApp <% @TODO %> (Ast.hole) in
     let placeholder := TemplateToPCUIC.trans [] AstPlaceholder in
 
+
     (* the kername of the inductive (module path and name) *)
     let kn := inductive.(inductive_mind) in
     (* environment to lookup the inductive for translation from TemplateCoq to PCUIC *)
@@ -193,7 +180,8 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
         it_mk takes contexts
      *)
 
-     (* separate params, non-uniform params, and indices *)
+
+    (* compute contexts of params, params, non-uniform params, and indices *)
     let non_uniform_param_count := 1 in (* TODO: guess it correctly *)
     let ind_type := ind.(ind_type) in (* type of the inductive *)
     let (ctx,retTy) := decompose_prod_assum [] ind_type in (* get params and indices and inner retTy *)
@@ -272,18 +260,12 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
     let augmented_args arg_ctx := 
         (* internal viewpoint: ∀ params P non_uni. • <- here *)
         (*   if this viewpoint is not met, you have to lift the resulting term after using the augmented arguments *)
-        (* lift over P *)
+        (* lift over P behind non_uni parameters *)
         let arg_list := rev (lift_context 1 #|non_uni_param_ctx| arg_ctx) in (* ind is tRel (param+1) the +1 to lift over P *)
         augment_arguments param_ctx non_uni_param_ctx indice_ctx arg_list 
     in
 
     let case_ctx :=
-        (* dummy case: forall non-uni indices inst, P *)
-        (* [
-        vass (rName "H_All")
-        (conclusion_type #|ind.(ind_ctors)|) (* lift over predicate *)
-        ]
-        ++  *)
         (rev(
             mapi (fun i ctor => 
                 vass (rName ("H_"^ctor.(cstr_name))) 
@@ -495,23 +477,6 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
                                         #|predicate_ctx| = inst+indices+non-uni (arguments of f)
                                         *)
 
-                                        (* <% I %> *)
-
-                                        (* lift over ctor args, inst, indices, non-uni, f => right before fixpoint *)
-                                        (* Ast.mkApps
-                                        (Ast.tRel (#|arg_ctx|+#|predicate_ctx|+1+
-                                                    (#|case_ctx| -i-1)))
-                                        (
-                                        map (Ast.lift0 (#|arg_ctx|+1+#|indice_ctx|)) (mkAstRels #|non_uni_param_ctx|) ++
-                                        mkAstRels #|arg_ctx|
-                                        ) *)
-
-
-                                       (* Ast.mkApps
-                                        (Ast.tRel ( #|arg_ctx| + #|predicate_ctx|+1)) (* H_All = args+f *)
-                                        (map (Ast.lift0 #|arg_ctx|) (mkAstRels #|predicate_ctx|))  *)
-                                            (* non-uni *) (* indices *) (* inst *)
-
                                         (* AstPlaceholder *)
 
                                         let aug_args := augmented_args arg_ctx in (* virtually behind ∀ Params P. • *)
@@ -521,7 +486,6 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
                                                     (#|case_ctx| -i-1))) (* H_ctor *)
                                         (
                                             map (Ast.lift0 (#|arg_ctx|+1+#|indice_ctx|)) (mkAstRels #|non_uni_param_ctx|) ++
-                                            (* mkAstRels #|arg_ctx| *)
                                             snd (
                                                 fold_right
                                                 (fun arg '(i,rels) =>
@@ -553,22 +517,19 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
                         )
                     )
                 ) 
-
-                (* (mkApps 
-                    (tRel ( #|predicate_ctx|+1)) (* H_All = args+f *)
-                    (mkRels #|predicate_ctx| (* non-uni *) (* indices *) (* inst *)
-                    )
-                ) *)
-                (* IQ *)
                 )
             ; 
-            rarg  := #|predicate_ctx| - 1 (* the last argument (instance) is structural recursive *)
+            rarg  := #|predicate_ctx| - 1 (* the last argument (the instance) is structural recursive *)
             |} ] 0
         )
         )
     )
     Cast
     (PCUICToTemplate.trans type).
+
+
+
+
 
 Load test_types.
 MetaCoq Run (
