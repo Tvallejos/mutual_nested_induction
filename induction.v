@@ -1,9 +1,16 @@
+(*
+created using github coq-8.13 branch (f000a1d66428370ac98685fb8aaca79c225a91c0)
+not opam coq-metacoq 1.0~beta2+8.13
+    as the opam version has less useful definitions for inductive types, cases, ...
+*)
+
 From MetaCoq.Template Require Import All.
 
 From MetaCoq Require Import All.
 Require Import String List.
 (* Local Open Scope string. *)
-Import ListNotations MCMonadNotation Nat.
+Import ListNotations Nat.
+Import MCMonadNotation.
 
 From MetaCoq.PCUIC Require Import 
      PCUICAst PCUICAstUtils PCUICInduction
@@ -288,7 +295,7 @@ As we handle induction hypotheses and the proofs all in one place,
 this is the only place to adjust the difference induction hypotheses
 => it is possible to toggle between case analysis and induction hypotheses in the function
 *)
-Definition augment_arguments (mode:creation_mode) (param_ctx non_uni_param_ctx indice_ctx:context) (xs:list context_decl) : list (@assumption_type (BasicAst.context_decl term)) := 
+Definition augment_arguments (mode:creation_mode) (param_ctx non_uni_param_ctx indice_ctx:context) (xs:list context_decl) : list (@assumption_type (context_decl)) := 
     let hyp (arg:context_decl) t := IH (vass (extendAname "IH_" arg.(decl_name) "") t) in
 
     fold_left_i
@@ -354,6 +361,12 @@ Definition augment_arguments (mode:creation_mode) (param_ctx non_uni_param_ctx i
 (* adds quantification of context around body *)
 Notation quantify:= (it_mkProd_or_LetIn)(only parsing).
 
+(* Definition ind_indices (mind:mutual_inductive_body) (ind:one_inductive_body) := 
+    let param_count := mind.(ind_npars) in
+    let (param_inds,_) := decompose_prod_assum [] ind.(ind_type) in
+    rev (skipn mind.(ind_npars) (rev (param_inds))). *)
+
+
 
 (*
 general scheme
@@ -400,11 +413,11 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
 
 
     (* compute contexts of params, params, non-uniform params, and indices *)
-    let non_uniform_param_count := 1 in (* TODO: guess it correctly *)
+    let non_uniform_param_count := 0 in (* TODO: guess it correctly *)
     let ind_type := ind.(ind_type) in (* type of the inductive *)
     let (ctx,retTy) := decompose_prod_assum [] ind_type in (* get params and indices and inner retTy *)
         (* for list: ctx=[Type], retTy=Type *)
-    let indice_ctx := ind.(ind_indices) in
+    let indice_ctx := ind_indices ind in
     let all_param_ctx := skipn #|indice_ctx| ctx in (* parameters and non-uniform parameter *)
     let non_uni_param_ctx := firstn non_uniform_param_count all_param_ctx in (* non-uniform are behind => at the front *)
     let param_ctx := skipn #|non_uni_param_ctx| all_param_ctx in 
@@ -754,7 +767,8 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
 
 
 
-Load test_types.
+(* Load test_types. *)
+Load param_test.
 MetaCoq Run (
     (* t <- tmQuote (list);; *)
     (* t <- tmQuote (@Vector.t);; *)
@@ -765,7 +779,9 @@ MetaCoq Run (
     (* t <- tmQuote (implicitTest);; *)
 
     (* t <- tmQuote (nonUniTest);; *)
-    t <- tmQuote (nonUniDepTest);;
+    (* t <- tmQuote (nonUniDepTest);; *)
+
+    t <- tmQuote (natᵗ);;
 
     (fix f t := match t with
     Ast.tInd ({| inductive_mind := k |} as inductive) uinst => 

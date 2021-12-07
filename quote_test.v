@@ -14,7 +14,7 @@ From MetaCoq.PCUIC Require Import TemplateToPCUIC.
 From MetaCoq.PCUIC Require Import PCUICToTemplate.
 
 
-Load Test_Types.
+Load test_types.
 
 
 MetaCoq Quote Definition f1 :=
@@ -35,8 +35,8 @@ MetaCoq Quote Definition f2 :=
 MetaCoq Quote Definition f3 :=
     (fun A N (xs:list A) (h:nonUniDepTest A N xs true 0) =>
     match h return bool with (* without return bool, the MC term gets large *)
-    | CD1 H1 H2 => true
-    | CD2 H1 => false 
+    | CD1 H1 H2 _ _ => true
+    | CD2 H1 _ _ _ _ => false 
     end).
 
 MetaCoq Quote Definition f4 :=
