@@ -14,7 +14,9 @@ Inductive nonUniDepTest (A:Type) (N:nat) (*non-uni:*) (xs:list A) : bool -> nat 
     (f:forall (a:A), nonUniDepTest A N [] true 0) 
     (g:forall b, nonUniDepTest A N [] b 0)
     (h:forall n b, nonUniDepTest A N [] b n)
-    (HA:nonUniDepTest A N (xs ++ xs) true 0), nonUniDepTest A N xs false 1.
+    (a:A)
+    (HA:nonUniDepTest A N (a::xs) true 0), nonUniDepTest A N xs false 1.
+    (* (HA:nonUniDepTest A N (xs ++ xs) true 0), nonUniDepTest A N xs false 1. *)
 
 Inductive depTest (A:Type) (HA: A -> Type) : (forall a, HA a) -> Type :=.
 Inductive implicitTest {n:nat} (A:Type) : Type := Impl.

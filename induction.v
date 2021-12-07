@@ -1004,10 +1004,12 @@ MetaCoq Run (
 
     (* t <- tmQuote (natᵗ);; *)
     (* t <- tmQuote (listᵗ);; *)
-    t <- tmQuote (vecᵗ);;
-    (* t <- tmQuote (roseᵗ);; *)
+    (* t <- tmQuote (vecᵗ);; *)
+    t <- tmQuote (roseᵗ);;
     (* t <- tmQuote (roseSAᵗ);; *)
     (* t <- tmQuote (roseAᵗ);; *)
+
+    (* t <- tmQuote (nonUniDepTestᵗ);; *)
 
     (fix f t := match t with
     Ast.tInd ({| inductive_mind := k |} as inductive) uinst => 

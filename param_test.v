@@ -41,3 +41,14 @@ Print roseSAᵗ.
 MetaCoq Run (TC <- Translate list_TC "roseA" ;;
                 tmDefinition "roseA_TC" TC ).
 Print roseAᵗ.
+MetaCoq Run (TC <- Translate list_TC "bool" ;;
+                tmDefinition "bool_TC" TC ).
+Print boolᵗ.
+MetaCoq Run (TC <- Translate bool_TC "nonUniTest" ;;
+                tmDefinition "nonUniTest_TC" TC ).
+Print nonUniTestᵗ.
+MetaCoq Run (TC <- Translate bool_TC "nonUniDepTest" ;;
+                tmDefinition "nonUniDepTest_TC" TC ).
+Print nonUniDepTestᵗ.
+
+(* TODO: parametricity of typed with functions like List.app, Addition, ... *)
