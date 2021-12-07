@@ -88,6 +88,163 @@ Inductive assumption_type {T} :=
 
 Variant creation_mode := IHAssumption | IHProof.
 
+(*
+n = destination
+k = local binder count
+
+(* we simplify 
+does not change binder structure in contrast to normal subst
+(but it could without causing problems) *)
+Correction: works like subst now
+*)
+Fixpoint local_subst_ (s:list term) (n:nat) (k:nat) (t:term) := 
+  match t with
+  | tRel m =>
+      (* difference: correct distance is dest (n)+local (k) *)
+	  if k+n <=? m
+      then
+        (* difference: only lift over local binders *)
+        if nth_error s (m - k-n) is Some b then lift0 k b else tRel (m - #|s|)
+      else tRel m
+  | tEvar ev args => tEvar ev (map (local_subst_ s n k) args)
+  | tProd na A B => tProd na (local_subst_ s n k A) (local_subst_ s n (S k) B)
+  | tLambda na T M => tLambda na (local_subst_ s n k T) (local_subst_ s n (S k) M)
+  | tLetIn na b ty b' =>
+      tLetIn na (local_subst_ s n k b) (local_subst_ s n k ty) (local_subst_ s n (S k) b')
+  | tApp u0 v => tApp (local_subst_ s n k u0) (local_subst_ s n k v)
+  | tCase ind p c brs =>
+      let p' := map_predicate_k id (local_subst_ s n) k p in
+      let brs' := map_branches_k (local_subst_ s n) id k brs in
+      tCase ind p' (local_subst_ s n k c) brs'
+  | tProj p c => tProj p (local_subst_ s n k c)
+  | tFix mfix idx =>
+      let k' := #|mfix| + k in
+      let mfix' := map (map_def (local_subst_ s n k) (local_subst_ s n k')) mfix in
+      tFix mfix' idx
+  | tCoFix mfix idx =>
+      let k' := #|mfix| + k in
+      let mfix' := map (map_def (local_subst_ s n k) (local_subst_ s n k')) mfix in
+      tCoFix mfix' idx
+  | _ => t
+  end.
+
+Definition local_subst s n := local_subst_ s n 0.
+
+
+(* Definition beta_reduce (t:term) : term.
+    refine(term_ind_size_app (fun _ => term)
+        tRel
+        tVar
+        (fun n l _ => tEvar n l)
+
+
+        ).
+
+    apply term_ind_size_app.
+    -  *)
+
+(* Fixpoint beta_reduce (t:term) : term :=
+    let f := beta_reduce in
+    match t with 
+    | tApp (tLambda _ _ body) b =>
+        (beta_reduce body) {0:=b}
+        (* identity folding *)
+    | tEvar n xs =>
+        tEvar n (map f xs)
+    | tProd na a b =>
+        tProd na (f a) (f b)
+    | tLambda na a b =>
+        tLambda na (f a) (f b)
+    | tLetIn na a b c =>
+        tLetIn na (f a) (f b) (f c)
+    | tApp a b => 
+        match f a with 
+        | tLambda _ _ body =>
+            body {0:=b}
+        | ra => tApp ra (f b)
+        end
+    | tProj p a => 
+        tProj p (f a)
+    (* ignore tCase, tFix, tCoFix *)
+    | _ => t
+    end. *)
+
+(* Fixpoint beta_reduce_ n (t:term) : term :=
+    match n with
+    | 0 => t
+    | S m =>
+    let f := beta_reduce_ m in
+    match t with 
+    | tApp (tLambda _ _ body) b =>
+        beta_reduce_ m (body{0:=b})
+        (* identity folding *)
+    | tEvar n xs =>
+        tEvar n (map f xs)
+    | tProd na a b =>
+        tProd na (f a) (f b)
+    | tLambda na a b =>
+        tLambda na (f a) (f b)
+    | tLetIn na a b c =>
+        tLetIn na (f a) (f b) (f c)
+    | tApp a b => 
+        match f a with
+        | tLambda _ _ _ => f (tApp (f a) b)
+        | _ => tApp (f a) (f b)
+        end
+        (* f (tApp (f a) (f b)) *)
+    | tProj p a => 
+        tProj p (f a)
+    (* ignore tCase, tFix, tCoFix *)
+    | _ => t
+    end
+    end.
+Definition beta_reduce := beta_reduce_ 1000. *)
+
+(* Program Fixpoint beta_reduce (t:term) : term :=
+    let f := beta_reduce in
+    match t with 
+    | tApp (tLambda _ _ body) b =>
+        beta_reduce (body{0:=b})
+        (* identity folding *)
+    | tEvar n xs =>
+        tEvar n (map f xs)
+    | tProd na a b =>
+        tProd na (f a) (f b)
+    | tLambda na a b =>
+        tLambda na (f a) (f b)
+    | tLetIn na a b c =>
+        tLetIn na (f a) (f b) (f c)
+    | tApp a b => 
+        tApp (f a) (f b)
+    | tProj p a => 
+        tProj p (f a)
+    (* ignore tCase, tFix, tCoFix *)
+    | _ => t
+    end. *)
+
+(* Compute (beta_reduce (
+    tApp 
+    (tApp 
+    (tLambda (relevant_binder nAnon) (tEvar 0 []) 
+    (tLambda (relevant_binder nAnon) (tEvar 0 []) 
+        (tApp (tRel 0) (tRel 1))
+    )
+    )
+    (tRel 42))
+    (tRel 60)
+    )
+). *)
+
+(* Compute (beta_reduce (
+    tApp 
+    (tLambda (relevant_binder nAnon) (tEvar 0 []) 
+    (tLambda (relevant_binder nAnon) (tEvar 0 []) 
+        (tRel 0)
+    )
+    )
+    (tRel 42)
+    )
+). *)
 
 
     (* TODO: there once was a function doing this already (was it mkApp in a previous version?) *)
@@ -105,7 +262,7 @@ Fixpoint mkEagerApps (t:term) (us:list term) : term :=
     | u::ur => mkEagerApps (mkEagerApp t u) ur
     end.
 
-    Locate "_ { _ := _ }".
+    (* Locate "_ { _ := _ }". *)
 
 
     (*
@@ -189,6 +346,7 @@ Fixpoint create_induction_hypothesis (mode:creation_mode) (param_ctx non_uni_par
 
             (* skip parameters and shift call_pos accordingly to sacrificial lambdas *)
             (* holes only possible for proof *)
+            (* TODO: move sacrificial lambda outside (see local stashed commit) *)
             if mode is IHProof then
                 (* not necessary to have holes but saves from having trouble with liftings *)
                 ret (it_mkLambda_or_LetIn (map_context (fun _ => hole) param_ctx) (tRel (#|param_ctx|+call_pos)))
@@ -507,7 +665,7 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
         augment_arguments mode param_ctx non_uni_param_ctx indice_ctx arg_list 
     in
 
-    let case_ctx :=
+    (* let case_ctx :=
         (rev(
             mapi (fun i ctor => 
                 vass (rName ("H_"^ctor.(cstr_name))) 
@@ -588,7 +746,7 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
                 )
             ) ind.(ind_ctors)
         ))
-    in
+    in *)
 
 
     let case_ctx :=
@@ -607,12 +765,22 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
                             not at i+1+params (liftet over predicate, other cases)
                             with predicate behind cases (i)
                          *)
-                        (* subst [tRel i] (i+1+#|param_ctx|)  *)
-                        subst [ind_term] (i+1+#|param_ctx|) 
+                         (* beta_reduce( *)
+                        local_subst [
+                            (* sacrificial lambda to remove param application for the predicate *)
+                            (* holes are not allowed here but we eagerly perform beta reduction *)
+                            (* TODO: beta_reduce does not work ? => first reduce then reduce further *)
+                            (* it_mkLambda_or_LetIn (map_context (fun _ => hole) param_ctx) *)
+                            it_mkLambda_or_LetIn (lift_context (i+1) 0 param_ctx)
+                            (tRel (i+#|param_ctx|)) (* predicate behind other cases and sacrificial lambdas *)
+                            (* ind_term  *)
+                        ]
+                        (i+1+#|param_ctx|) 
                         (* lift over other cases for correct param access *)
                         (lift0 (i+1)
                             (it_mkProd_or_LetIn ctor_arg_ctx body)
                         )
+                        (* ) *)
 
 
                         (* 
@@ -836,10 +1004,10 @@ MetaCoq Run (
 
     (* t <- tmQuote (natᵗ);; *)
     (* t <- tmQuote (listᵗ);; *)
-    (* t <- tmQuote (vecᵗ);; *)
+    t <- tmQuote (vecᵗ);;
     (* t <- tmQuote (roseᵗ);; *)
     (* t <- tmQuote (roseSAᵗ);; *)
-    t <- tmQuote (roseAᵗ);;
+    (* t <- tmQuote (roseAᵗ);; *)
 
     (fix f t := match t with
     Ast.tInd ({| inductive_mind := k |} as inductive) uinst => 
