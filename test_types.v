@@ -18,3 +18,12 @@ Inductive nonUniDepTest (A:Type) (N:nat) (*non-uni:*) (xs:list A) : bool -> nat 
 
 Inductive depTest (A:Type) (HA: A -> Type) : (forall a, HA a) -> Type :=.
 Inductive implicitTest {n:nat} (A:Type) : Type := Impl.
+
+Inductive vec (A : Type) : nat -> Type :=
+	nilVec : vec A 0
+  | consVec : A -> forall n : nat, vec A n -> vec A (S n).
+  (* universe constraints in parametricity (original) *)
+Inductive rose : Prop := Node (xs:list rose).
+Inductive rose2 : Prop := Node2 (xs:list rose2) | Leaf2.
+Inductive roseSA (A:Type) : Prop := LeafSA (a:A).
+Inductive roseA (A:Type) : Prop := LeafA (a:A) | NodeA (xs:list (roseA A)).

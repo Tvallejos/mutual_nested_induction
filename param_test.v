@@ -16,6 +16,7 @@ From MetaCoq.PCUIC Require Import PCUICToTemplate.
 From MetaCoq.Translations Require Import translation_utils.
 From MetaCoq.Translations Require Import param_original.
 
+Unset Strict Unquote Universe Mode. 
 Load test_types.
 
 
@@ -25,9 +26,18 @@ Print natᵗ.
 MetaCoq Run (TC <- Translate nat_TC "list" ;;
                 tmDefinition "list_TC" TC ).
 Print listᵗ.
-Inductive vec (A : Type) : nat -> Type :=
-	nilVec : vec A 0
-  | consVec : A -> forall n : nat, vec A n -> vec A (S n).
 MetaCoq Run (TC <- Translate list_TC "vec" ;;
                 tmDefinition "vec_TC" TC ).
 Print vecᵗ.
+MetaCoq Run (TC <- Translate list_TC "rose" ;;
+                tmDefinition "rose_TC" TC ).
+Print roseᵗ.
+MetaCoq Run (TC <- Translate list_TC "rose2" ;;
+                tmDefinition "rose2_TC" TC ).
+Print rose2ᵗ.
+MetaCoq Run (TC <- Translate list_TC "roseSA" ;;
+                tmDefinition "roseSA_TC" TC ).
+Print roseSAᵗ.
+MetaCoq Run (TC <- Translate list_TC "roseA" ;;
+                tmDefinition "roseA_TC" TC ).
+Print roseAᵗ.

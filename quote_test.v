@@ -14,7 +14,23 @@ From MetaCoq.PCUIC Require Import TemplateToPCUIC.
 From MetaCoq.PCUIC Require Import PCUICToTemplate.
 
 
-Load test_types.
+Load param_test.
+
+(* MetaCoq Run (
+    tmQuote (@list)
+    >>= tmPrint
+). *)
+
+MetaCoq Run (
+    (* qt <- tmQuote (@list);; *)
+    qt <- tmQuote (@roseSAᵗ);;
+    (* qt <- tmQuote (@roseAᵗ);; *)
+    match qt with 
+    | Ast.tInd {| inductive_mind := kn |} _ =>
+        tmQuoteInductive kn >>= tmPrint
+    | _ => tmFail "try again"
+    end
+).
 
 
 MetaCoq Quote Definition f1 :=
