@@ -50,5 +50,8 @@ Print nonUniTestᵗ.
 MetaCoq Run (TC <- Translate bool_TC "nonUniDepTest" ;;
                 tmDefinition "nonUniDepTest_TC" TC ).
 Print nonUniDepTestᵗ.
+MetaCoq Run (TC <- Translate nat_TC "guardTest" ;;
+                tmDefinition "guardTest_TC" TC ).
+Print guardTestᵗ.
 
 (* TODO: parametricity of typed with functions like List.app, Addition, ... *)

@@ -309,7 +309,7 @@ Fixpoint mkEagerApps (t:term) (us:list term) : term :=
     None - if no induction is possible or the special kind of induction is not supported
     
     *)
-Fixpoint create_induction_hypothesis (mode:creation_mode) (param_ctx non_uni_param_ctx indice_ctx:context) (ind_pos call_pos:nat) (t:term) : option term :=
+(* Fixpoint create_induction_hypothesis (mode:creation_mode) (param_ctx non_uni_param_ctx indice_ctx:context) (ind_pos call_pos:nat) (t:term) : option term :=
     match t with 
     | tRel p =>
         (*
@@ -514,7 +514,177 @@ Definition augment_arguments (mode:creation_mode) (param_ctx non_uni_param_ctx i
             assumptions++[Argument (vass rAnon argument)]++IHs
     )
     xs
+    []. *)
+
+
+
+
+
+
+
+Fixpoint create_proof_term (param_ctx non_uni_param_ctx indice_ctx:context) (ind_pos call_pos:nat) (t:term) : option term :=
+    match t with 
+    | tRel p =>
+        (*
+        a tRel is a reference to some argument/parameter/... in the inductive type
+        *)
+        if p =? ind_pos then
+            (*
+            if the tRel points to ind_pos, 
+            this term is a self reference => induction is possible
+
+            we want to replace it with an application to P/f (the fixpoint) which is tRel call_pos
+            but these functions only expect the non_uni params, indices and the instance not the parameters
+            but the inductive type is fully instantiated with the params, the non_uni (or instantiations thereof),
+                and the indices
+            
+            therefore, we consume all parameters using lambdas without usage of there argument
+            the resulting term takes all params and leaves and (eta-reduces) term of type 
+                P: ∀ non_uni indices inst, Type (for assumptions)
+                f: ∀ non_uni indices inst, P non_uni indices inst (for proofs)
+            
+            due to the new lambdas, #|param_ctx| has to be added to the call_pos because the call lies under the new lambdas
+
+            strictly speaking, we have to give correct types to the lambdas that take the parameters although their instantiation is clear
+                with correct lifting (only easy for assumptions), this is param_ctx
+                alternatively, we could place dummy values in the lambdas and using eager
+                    application with lambda instantiation (mkEagerApp), we could fill them in during construction
+                    resulting in a lambda free resulting term
+                for proofs we are free to use holes (even without mkEagerApp) as the cast in the later usage 
+                    guarantees an instantiation of the evars
+
+            read on in the tApp case to see how the instantiation of non_uni and indices is correctly computed
+            (reminder: the instantiation of the instance is outside the lemma and is the task of the caller)
+            *)
+
+            (* skip parameters and shift call_pos accordingly to sacrificial lambdas *)
+            (* holes only possible for proof *)
+            (* TODO: move sacrificial lambda outside (see local stashed commit) *)
+            (* not necessary to have holes but saves us from having trouble with liftings *)
+            ret (it_mkLambda_or_LetIn (map_context (fun _ => hole) param_ctx) (tRel (#|param_ctx|+call_pos)))
+        else 
+            (* anything else like params, references arguments, ... do not allow for induction *)
+            (* ret (it_mkLambda_or_LetIn (map_context (fun _ => hole) param_ctx) (tRel (#|param_ctx|+call_pos))) *)
+            None
+
+
+    | tApp a b =>
+        (*
+        when computing the induction hypothesis for an argument
+        we encounter 'ind (as tRel) params non_uni indices' => many applications around the main center of the inductive
+        one possibility is to decompose the application, skip the params, subst the core, and recompose it
+        but this is not generalizable to guarded induction and nested induction
+
+        therefore, we write a more general and local mapping by traversal
+
+        if we encounter an application (with the params, non_uni, or indices) we recurse in the
+            core of the application to compute the induction hypothesis and reapply the application argument
+        this guarantees that we reapply all non_uni and indices (necessary) but we also apply the params
+        therefore, the innermost body (the ind tRel) has to throw them away by skipping the params using lambdas
+        there are no explicit lambdas to take the non_uni and indices
+        instead, we apply them directly to the eta-reduced tRel for call_pos
+        *)
+        s <- create_proof_term param_ctx non_uni_param_ctx indice_ctx ind_pos call_pos a;;
+        ret (mkEagerApp s hole)
+        (* alternative: ret (tApp s hole) *)
+
+    | tProd na ty b =>
+        (* tProd is important for guarded induction
+            removing this case disables guarded induction of the form
+            (f: nat -> ind) (IH_f: forall n, P (f n))
+
+            the induction hypothesis should also have all quantification
+            but we also need to apply all quantifications to the argument in question
+            to get the inductive instance (but we do not have access to the argument directly)
+
+            therefore, we use a few η and β reductions and expansions
+
+            we first compute the hypothesis for the body of the quantification 
+            we have to lift the contexts and raise the ind_pos and call_pos to 
+                accomodate for the new binder
+            we perform eta expansion to explicitely take the argument with a lambda,
+            then we apply the quantified argument (the guard of the induction)
+                tApp (tRel 1) (tRel 0)
+            this application is the new argument for the inner induction hypothesis
+            therefore, we apply it to s 
+                (which has to be liftet over the eta-expansion but only from 
+                    de Bruijn index 1 and higher in order to preserve the binder tProd)
+            we use eager application to resolve all intermediately produced lambdas
+                a) for a cleaner term
+                b) more importantly: to avoid having to specify the types in the 
+                    sacrificial tLambda as these are complicated to construct
+                    but we also can not use holes when construction the assumption
+
+            for the proofs the quantification tProd is translated to a tLambda
+         *)
+        s <- create_proof_term
+            (lift_context 1 0 param_ctx) 
+            (lift_context 1 0 non_uni_param_ctx) 
+            (lift_context 1 0 indice_ctx) 
+            (S ind_pos) (S call_pos) b;;
+        ret(tLambda rAnon (hole) (* hole is here not possible but we use eager beta reduction *)
+        (
+            (* lift for sacrificial lambda *)
+            (tLambda na hole)
+            (mkEagerApps 
+            (lift 1 1 s) (* lift behind na over sacrificial lambda *)
+            [mkApps (tRel 1) [tRel 0]]) (* arg a *)
+        ))
+
+    | _ => None
+    end.
+
+
+Definition augment_arguments2 (param_ctx non_uni_param_ctx indice_ctx:context) (xs:list context_decl) : list (term) := 
+    fold_left_i
+    (fun assumptions i arg =>
+        let ind_pos := #|param_ctx|+1+#|non_uni_param_ctx|+i in (* virtual position of the inductive type represented by tRel in the ctor arguments *) 
+            (* xs is some mapping of arg_ctx => number of arguments *)
+            (* behind all arguments, the instance, indices, and non_uni params 
+                keep in mind that the match all arguments are quantified
+                and the case is called and instantiation
+                therefore, the index of the fixpoint does not depend on which argument is under consideration right now
+             *)
+            let fix_pos := #|xs|+1+#|indice_ctx|+#|non_uni_param_ctx| in
+            (* the proof the induction hypothesis (if one exists) or None otherwise
+                (the result is waiting for the argument to be supplied)
+             *)
+            let asm := create_proof_term param_ctx non_uni_param_ctx indice_ctx ind_pos fix_pos arg.(decl_type) in
+            (* let asm := None in *)
+            (* select the ith argument from the constructor arguments
+                    due to de Bruijn we need to write N-i-1 to get the ith of N arguments
+                we can not influence the order as it is given by the construction of a tCase
+                    (but maybe it should stay in correct order to be less confusing in other areas)
+            *)
+            let argument := tRel (#|xs| - i - 1) in
+            assumptions++[
+                if asm is (Some asm_body) then
+                    (mkEagerApps asm_body [argument])
+                    (* let AstPlaceholder := Ast.mkApp <% @TODO %> (Ast.hole) in
+                    let placeholder := TemplateToPCUIC.trans [] AstPlaceholder in
+                    placeholder *)
+                else
+                    argument
+                ]
+        
+            (* let IHs := 
+                if asm is (Some asm_body) then
+                    (* suplly the body with the argument *)
+                    assumptions++[(mkEagerApps asm_body [argument])]
+                    (* [] *) (* this results in no induction hypotheses => case analysis *)
+                else 
+                    (* the argument does not allow for induction *)
+                    []
+            in
+
+            (* add argument instantiation (tRel) and proof the induction hypothesis (call to f and a bit of stuff around it)
+                as application arguments *)
+            assumptions++[Argument (vass rAnon argument)]++IHs *)
+    )
+    xs
     [].
+
+
 
 (* adds quantification of context around body *)
 Notation quantify:= (it_mkProd_or_LetIn)(only parsing).
@@ -601,7 +771,7 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
         in nested inductive induction hypotheses generated by third-party parametricity translations
     *)
     let full_predicate_ctx := 
-        [vass (rName "ind_inst") 
+        [vass (rName "instᵗ") 
             (mkApps ind_term 
             (
                 map (lift0 (#|non_uni_param_ctx|+#|indice_ctx|)) (mkRels #|param_ctx|) ++ (* params *)
@@ -657,13 +827,13 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
 
     (* takes argument context (that is given in constructor) in normal view => behind parameters *)
     (* the result is a list **not** a context (=> it is in the correct order as you would write it) *)
-    let augmented_args mode arg_ctx := 
+    (* let augmented_args mode arg_ctx := 
         (* internal viewpoint: ∀ params P non_uni. • <- here *)
         (*   if this viewpoint is not met, you have to lift the resulting term after using the augmented arguments *)
         (* lift over P behind non_uni parameters *)
         let arg_list := rev (lift_context 1 #|non_uni_param_ctx| arg_ctx) in (* ind is tRel (param+1) the +1 to lift over P *)
         augment_arguments mode param_ctx non_uni_param_ctx indice_ctx arg_list 
-    in
+    in *)
 
     (* let case_ctx :=
         (rev(
@@ -858,20 +1028,21 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
 
             (* take non-uni indices inst (all args for predicate => predicate context) *)
             (* TODO: common lifting offset *)
-            placeholder
+            (* placeholder *)
 
-            (* tFix [ {|
+            tFix [ {|
             dname := rName "f";
             dtype := conclusion_type (#|case_ctx|); (* hole not possible for types without ctors *)
             dbody := 
                 it_mkLambda_or_LetIn 
                 (* lift over f (recursive fixpoint function), cases, predicate *)
-                (lift_context (1 + #|case_ctx| + 1) 0 predicate_ctx)
+                (lift_context (1 + #|case_ctx| + 1) 0 full_predicate_ctx)
 
                 (* match
                     TODO: write what we are doing
                     the tCase in TemplateCoq is easier than the tCase in PCUIC (too many redundant annotations)
                 *)
+                (* placeholder *)
                 (
                 (TemplateToPCUIC.trans lookup_env
                     (Ast.tCase
@@ -888,27 +1059,28 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
                                    cases, predicate
                                  *)
                                 (1+#|indice_ctx|+#|non_uni_param_ctx|+1+#|case_ctx|+1)) 
-                                (mkAstRels #|param_ctx|) ++
+                                (mkAstRels #|param_ctx|) ++ (* provide param bindings *)
                             (* instance and indices to reach non-uni in fix point definition *)
-                            map (Ast.lift0 (1+#|indice_ctx|)) (mkAstRels #|non_uni_param_ctx|)
+                            map (Ast.lift0 (1+#|indice_ctx|)) (mkAstRels #|non_uni_param_ctx|) (* and non-uni param bindings *)
                         ;
-                        Ast.pcontext := 
+                        Ast.pcontext :=
+                            (* names for indice bindings and the match instance (for return type context) *)
                             map (fun _ => rAnon) indice_ctx ++
                             [rName "inst"];
                             (* there are new binders for the indices and instance in the return type *)
                         Ast.preturn := 
-                        (* P holds with non-uni, indices, inst *)
+                        (* P holds with non-uni, indices (no instance) *)
                         (* Ast.hole not possible for types without ctors *)
                         Ast.mkApps 
-                        (* local instance, indices, fix point arguments,f  *)
-                        (Ast.tRel (1+#|indice_ctx|+#|predicate_ctx|+1+#|case_ctx|))
+                        (* local instance, indices, fix point arguments (full pred),f  *)
+                        (Ast.tRel (1+#|indice_ctx|+#|full_predicate_ctx|+1+#|case_ctx|))
                         (
                             (* lift over instance, indices, instance (fix), indices (fix) *)
                             map (Ast.lift0 (1+#|indice_ctx|+1+#|indice_ctx|)) (mkAstRels #|non_uni_param_ctx|) ++
                             (* lift over instance *)
-                            map (Ast.lift0 1) (mkAstRels #|indice_ctx|) ++
+                            map (Ast.lift0 1) (mkAstRels #|indice_ctx|) 
                             (* instance *)
-                            [Ast.tRel 0]
+                            (* [Ast.tRel 0] *)
                         )
 
                         |}
@@ -922,7 +1094,55 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
                                     (* args is a context (reversed) but we want names in order *)
                                     map decl_name (rev arg_ctx) ;
                                 Ast.bbody := 
-                                    (
+                                        (* AstPlaceholder *)
+
+
+                                        let aug_args := 
+                                            let arg_list := rev (lift_context 1 #|non_uni_param_ctx| arg_ctx) in (* ind is tRel (param+1) the +1 to lift over P *)
+                                            augment_arguments2 param_ctx non_uni_param_ctx indice_ctx arg_list 
+                                        in (* virtually behind ∀ Params P. • *)
+
+
+
+
+                                        Ast.mkApps
+                                        (Ast.tRel (#|arg_ctx|+#|full_predicate_ctx|+1+
+                                        (* behind ctor args and fixpoint arguments (non_uni, indices, instance), and f *)
+                                        (* select the ith case from the assumptions
+                                             due to de Bruijn we need to write N-i-1 to get the ith of N arguments *)
+                                                    (#|case_ctx| -i-1))) (* H_ctor *)
+                                        (
+
+                                            (* lift non_uni over args, instance, indices *)
+                                            map (Ast.lift0 (#|arg_ctx|+1+#|indice_ctx|)) (mkAstRels #|non_uni_param_ctx|) ++ (* non-uni *)
+                                            ( 
+                                                map PCUICToTemplate.trans aug_args
+                                                (* map (fun a =>
+                                                    PCUICToTemplate.trans match a with
+                                                    | Argument x | IH x => x.(decl_type)
+                                                    end
+                                                ) (aug_args) *)
+                                                (* or mkRels *)
+                                                (* mapi (fun i a =>
+
+
+
+                                                    (* match a.(decl_type) with 
+                                                    | tRel _ => AstPlaceholder
+                                                    | tInd _ _ => AstPlaceholder
+                                                    | tConst _ _ => AstPlaceholder
+                                                    | _ => Ast.tRel (#|arg_ctx| -i-1)
+                                                    end *)
+                                                    Ast.tRel (#|arg_ctx| -i-1)
+                                                        (* Ast.tRel (#|arg_ctx| -i-1) *)
+                                        (* AstPlaceholder *)
+                                                ) (rev arg_ctx) *)
+                                            )
+
+                                        )
+
+
+                                    (* (
                                         (*
                                         #|arg_ctx| = number of arguments of the ctor
                                         #|predicate_ctx| = inst+indices+non-uni (arguments of f)
@@ -966,7 +1186,7 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
                                             )
                                         )
 
-                                    )
+                                    ) *)
                                 ;
                                 |}
                             ) ind.(ind_ctors)
@@ -975,8 +1195,8 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
                 ) 
                 )
             ; 
-            rarg  := #|predicate_ctx| - 1 (* the last argument (the instance) is structural recursive *)
-            |} ] 0 *)
+            rarg  := #|full_predicate_ctx| - 1 (* the last argument (the instance) is structural recursive *)
+            |} ] 0
         )
         )
     )
@@ -1002,10 +1222,11 @@ MetaCoq Run (
     (* t <- tmQuote (nonUniTest);; *)
     (* t <- tmQuote (nonUniDepTest);; *)
 
+    (* t <- tmQuote (boolᵗ);; *)
     (* t <- tmQuote (natᵗ);; *)
     (* t <- tmQuote (listᵗ);; *)
-    (* t <- tmQuote (vecᵗ);; *)
-    t <- tmQuote (roseᵗ);;
+    t <- tmQuote (vecᵗ);;
+    (* t <- tmQuote (roseᵗ);; *)
     (* t <- tmQuote (roseSAᵗ);; *)
     (* t <- tmQuote (roseAᵗ);; *)
 

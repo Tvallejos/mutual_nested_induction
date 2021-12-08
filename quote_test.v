@@ -23,7 +23,9 @@ Load param_test.
 
 MetaCoq Run (
     (* qt <- tmQuote (@list);; *)
-    qt <- tmQuote (@roseSAᵗ);;
+    qt <- tmQuote (@listᵗ);;
+    (* qt <- tmQuote (@roseSAᵗ);; *)
+    (* qt <- tmQuote (@roseᵗ);; *)
     (* qt <- tmQuote (@roseAᵗ);; *)
     match qt with 
     | Ast.tInd {| inductive_mind := kn |} _ =>

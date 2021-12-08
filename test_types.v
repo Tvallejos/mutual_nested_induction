@@ -20,6 +20,8 @@ Inductive nonUniDepTest (A:Type) (N:nat) (*non-uni:*) (xs:list A) : bool -> nat 
 
 Inductive depTest (A:Type) (HA: A -> Type) : (forall a, HA a) -> Type :=.
 Inductive implicitTest {n:nat} (A:Type) : Type := Impl.
+Inductive guardTest := 
+  G (g:nat -> guardTest).
 
 Inductive vec (A : Type) : nat -> Type :=
 	nilVec : vec A 0
