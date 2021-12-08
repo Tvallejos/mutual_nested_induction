@@ -14,7 +14,7 @@ From MetaCoq.PCUIC Require Import TemplateToPCUIC.
 From MetaCoq.PCUIC Require Import PCUICToTemplate.
 
 From MetaCoq.Translations Require Import translation_utils.
-From MetaCoq.Translations Require Import param_original.
+From MetaCoq.Translations Require Import param_binary.
 
 Unset Strict Unquote Universe Mode. 
 Load test_types.
@@ -59,11 +59,5 @@ Print list2ᵗ.
 MetaCoq Run (TC <- Translate list2_TC "dNest" ;;
                 tmDefinition "dNest_TC" TC ).
 Print dNestᵗ.
-MetaCoq Run (TC <- Translate list2_TC "dNestL" ;;
-                tmDefinition "dNestL_TC" TC ).
-Print dNestLᵗ.
-MetaCoq Run (TC <- Translate list_TC "noRose" ;;
-                tmDefinition "noRose_TC" TC ).
-Print noRoseᵗ.
 
 (* TODO: parametricity of typed with functions like List.app, Addition, ... *)

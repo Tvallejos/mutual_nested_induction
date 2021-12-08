@@ -16,10 +16,10 @@ From MetaCoq.PCUIC Require Import PCUICToTemplate.
 
 Load param_test.
 
-(* MetaCoq Run (
-    tmQuote (@list)
+MetaCoq Run (
+    tmQuote (@listᵗ)
     >>= tmPrint
-). *)
+).
 
 MetaCoq Run (
     (* qt <- tmQuote (@list);; *)

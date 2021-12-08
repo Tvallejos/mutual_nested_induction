@@ -26,8 +26,14 @@ Inductive guardTest :=
 Inductive vec (A : Type) : nat -> Type :=
 	nilVec : vec A 0
   | consVec : A -> forall n : nat, vec A n -> vec A (S n).
+Inductive list2 (A : Type) : Type :=
+	nil2
+  | cons2 (a:A) (xs:list2 A).
   (* universe constraints in parametricity (original) *)
+Inductive noRose : Prop := NoNode (xs:list nat).
 Inductive rose : Prop := Node (xs:list rose).
 Inductive rose2 : Prop := Node2 (xs:list rose2) | Leaf2.
 Inductive roseSA (A:Type) : Prop := LeafSA (a:A).
 Inductive roseA (A:Type) : Prop := LeafA (a:A) | NodeA (xs:list (roseA A)).
+Inductive dNest (A:Type) : Prop := DN (n:nat) (H:vec (list2 (dNest A)) n).
+Inductive dNestL (A:Type) : Prop := DNL (H:list (list (dNestL A))).

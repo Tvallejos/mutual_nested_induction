@@ -29,7 +29,7 @@ Definition rAnon := relevant_binder nAnon.
 Definition rName n := relevant_binder (nNamed n).
 
 (* Definition hole := TemplateToPCUIC.trans [] hole. *)
-Definition hole := tEvar fresh_evar_id [].
+(* Definition hole := tEvar fresh_evar_id []. *)
 
 Definition extendName prefix (n:name) suffix :=
     match n with 
@@ -82,6 +82,8 @@ Import IfNotations.
     only for testing/debugging purposes
  *)
 Variable (TODO: forall {T}, T).
+Definition AstPlaceholder := Ast.mkApp <% @TODO %> (Ast.hole).
+Definition placeholder := TemplateToPCUIC.trans [] AstPlaceholder.
 
 Inductive assumption_type {T} :=
     | Argument (asm:T) | IH (asm:T).
@@ -516,13 +518,83 @@ Definition augment_arguments (mode:creation_mode) (param_ctx non_uni_param_ctx i
     xs
     []. *)
 
+Load param_test.
+
+Definition listᵗ_func 
+    (A:Type) (Aᵗ:A->Type) (Aᵗ':A->Type) (F_A:forall a, Aᵗ a -> Aᵗ' a)  :=
+    fix f (x :list A) (xᵗ:listᵗ A Aᵗ x) : listᵗ A Aᵗ' x :=
+    match xᵗ with
+    | nilᵗ => nilᵗ A Aᵗ'
+    | consᵗ y yᵗ yr yrᵗ => consᵗ A Aᵗ' y (F_A y yᵗ) yr (f yr yrᵗ)
+    end
+    .
+
+Definition listᵗ_inductive := 
+    {| inductive_mind := (MPfile ["induction"], "listᵗ"); inductive_ind := 0 |}.
+
+Import Nat.
+Local Open Scope nat.
+From MetaCoq.PCUIC Require Import 
+     PCUICAst PCUICAstUtils PCUICInduction
+     PCUICLiftSubst PCUICEquality
+     PCUICUnivSubst PCUICTyping PCUICGeneration.
+
+Definition hole := tEvar fresh_evar_id [].
+
+(* Fixpoint decompose_apps xs t := 
+    match t with 
+    | tApp a b => 
+        decompose_apps (xs++[b]) a
+    | _ => (xs,t)
+    end.
+
+Lemma decompose_mk t xs ys:
+    ~isApp t ->
+    decompose_apps ys (mkApps t xs) = (xs++ys,t).
+Proof.
+    revert ys; 
+    induction xs using rev_ind;intros ys.
+    - now destruct t;cbn.
+    - rewrite mkApps 
+    refine (rev_list_ind _ _ _ _ xs).
+    apply rev_list_ind.
+    induction xs using rev_list_ind;cbn.
+    - now destruct t;cbn.
+    - 
+    induction t;cbn;try congruence;intros _.
+    -  *)
+(* Lemma recompose_apps t b xs:
+    decompose  *)
 
 
+Definition get_hypothesis param_ctx (ind_pos:nat) (pred_pos:nat) (t:term) :=
+    let param_pos := pred_pos + 1 in
+    local_subst [
+        (* sacrificial lambda to remove param application for the predicate *)
+        (* holes are not allowed here but we eagerly perform beta reduction *)
+        (* TODO: beta_reduce does not work ? => first reduce then reduce further *)
+        (* it_mkLambda_or_LetIn (map_context (fun _ => hole) param_ctx) *)
+        it_mkLambda_or_LetIn (lift_context param_pos 0 param_ctx)
+        (* it_mkLambda_or_LetIn (lift_context (i+1) 0 param_ctx) *)
+        (tRel pred_pos) (* predicate behind other cases and sacrificial lambdas *)
+        (* (tRel (i+#|param_ctx|)) *)
+        (* ind_term  *)
+    ]
+    ind_pos
+    (* (i+1+#|param_ctx|)  *)
+    t
+    (* lift over other cases for correct param access *)
+    (* (lift0 (i+1)
+        (it_mkProd_or_LetIn ctor_arg_ctx body)
+    ) *)
+    .
 
 
-
-
-Fixpoint create_proof_term (param_ctx non_uni_param_ctx indice_ctx:context) (ind_pos call_pos:nat) (t:term) : option term :=
+Fixpoint create_proof_term_ (fuel:nat) (param_ctx non_uni_param_ctx indice_ctx:context) (ind_pos pred_pos call_pos:nat) (t:term) : option term :=
+    match fuel with
+    | 0 => None
+    | S m =>
+    let create_proof_term := create_proof_term_ m in
     match t with 
     | tRel p =>
         (*
@@ -584,10 +656,53 @@ Fixpoint create_proof_term (param_ctx non_uni_param_ctx indice_ctx:context) (ind
         there are no explicit lambdas to take the non_uni and indices
         instead, we apply them directly to the eta-reduced tRel for call_pos
         *)
-        s <- create_proof_term param_ctx non_uni_param_ctx indice_ctx ind_pos call_pos a;;
-        ret (mkEagerApp s hole)
+        (* s <- create_proof_term param_ctx non_uni_param_ctx indice_ctx ind_pos call_pos a;;
+        ret (mkEagerApp s hole) *)
         (* alternative: ret (tApp s hole) *)
 
+
+        (* ugly but the best alternative *)
+        let (body,args) := decompose_app t in
+        let res := match body with
+        | tInd ind inst =>
+            (* nested type *)
+            if eq_inductive ind listᵗ_inductive then
+                (* ret placeholder *)
+                let lookup := TemplateToPCUIC.trans [] <% listᵗ_func %> in
+                let args' := (fix f xs {struct xs} :=
+                    match xs with
+                    | a::aᵗ::ys =>
+                        let fa_opt := create_proof_term param_ctx non_uni_param_ctx indice_ctx ind_pos pred_pos call_pos aᵗ in
+                        let fa := 
+                            if fa_opt is Some x then
+                                x
+                            else
+                                (* (λ x y: y) : ∀ (x:X), F x -> F x *)
+                                tLambda rAnon hole (tLambda rAnon hole (tRel 0))
+                        in
+                        hole:: (* a  = type *)
+                        hole:: (* aᵗ = translated type *)
+                        hole:: (* get_hypothesis param_ctx ind_pos pred_pos aᵗ = replace Tᵗ with P in aᵗ *)
+                        (*::fa *)
+                        (* ::placeholder *)
+                        (* placeholder:: *)
+                        fa:: (* recursive proof *)
+                        f ys
+                    | _ => xs
+                    end
+                ) args in
+                ret (mkApps lookup args')
+                (* None *)
+                else 
+                    None
+        | _ => None
+        end in
+        match res with
+        | Some r => Some r
+        | None =>
+            s <- create_proof_term param_ctx non_uni_param_ctx indice_ctx ind_pos pred_pos call_pos a;;
+            ret (mkEagerApp s hole)
+        end
     | tProd na ty b =>
         (* tProd is important for guarded induction
             removing this case disables guarded induction of the form
@@ -621,7 +736,7 @@ Fixpoint create_proof_term (param_ctx non_uni_param_ctx indice_ctx:context) (ind
             (lift_context 1 0 param_ctx) 
             (lift_context 1 0 non_uni_param_ctx) 
             (lift_context 1 0 indice_ctx) 
-            (S ind_pos) (S call_pos) b;;
+            (S ind_pos) (S pred_pos) (S call_pos) b;;
         ret(tLambda rAnon (hole) (* hole is here not possible but we use eager beta reduction *)
         (
             (* lift for sacrificial lambda *)
@@ -632,10 +747,13 @@ Fixpoint create_proof_term (param_ctx non_uni_param_ctx indice_ctx:context) (ind
         ))
 
     | _ => None
+    end
     end.
 
+Definition create_proof_term := create_proof_term_ 100.
 
-Definition augment_arguments2 (param_ctx non_uni_param_ctx indice_ctx:context) (xs:list context_decl) : list (term) := 
+
+Definition augment_arguments2 (param_ctx non_uni_param_ctx indice_ctx case_ctx:context) (xs:list context_decl) : list (term) := 
     fold_left_i
     (fun assumptions i arg =>
         let ind_pos := #|param_ctx|+1+#|non_uni_param_ctx|+i in (* virtual position of the inductive type represented by tRel in the ctor arguments *) 
@@ -646,17 +764,22 @@ Definition augment_arguments2 (param_ctx non_uni_param_ctx indice_ctx:context) (
                 therefore, the index of the fixpoint does not depend on which argument is under consideration right now
              *)
             let fix_pos := #|xs|+1+#|indice_ctx|+#|non_uni_param_ctx| in
+            let pred_pos := fix_pos + #|case_ctx| in
             (* the proof the induction hypothesis (if one exists) or None otherwise
                 (the result is waiting for the argument to be supplied)
              *)
-            let asm := create_proof_term param_ctx non_uni_param_ctx indice_ctx ind_pos fix_pos arg.(decl_type) in
+            let arg_off := #|xs| - i - 1 in
+            let asm := create_proof_term 
+                param_ctx non_uni_param_ctx indice_ctx 
+                (ind_pos+arg_off+1) pred_pos fix_pos 
+                (lift0 (arg_off+1) arg.(decl_type)) in
             (* let asm := None in *)
             (* select the ith argument from the constructor arguments
                     due to de Bruijn we need to write N-i-1 to get the ith of N arguments
                 we can not influence the order as it is given by the construction of a tCase
                     (but maybe it should stay in correct order to be less confusing in other areas)
             *)
-            let argument := tRel (#|xs| - i - 1) in
+            let argument := tRel arg_off in
             assumptions++[
                 if asm is (Some asm_body) then
                     (mkEagerApps asm_body [argument])
@@ -723,8 +846,6 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
     let PropQ := TemplateToPCUIC.trans [] <% Prop %> in
     let TrueQ := TemplateToPCUIC.trans [] <% True %> in
     let IQ := TemplateToPCUIC.trans [] <% I %> in
-    let AstPlaceholder := Ast.mkApp <% @TODO %> (Ast.hole) in
-    let placeholder := TemplateToPCUIC.trans [] AstPlaceholder in
 
 
     (* the kername of the inductive (module path and name) *)
@@ -1094,12 +1215,14 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
                                     (* args is a context (reversed) but we want names in order *)
                                     map decl_name (rev arg_ctx) ;
                                 Ast.bbody := 
-                                        (* AstPlaceholder *)
+                                if false then (* TODO: remove *)
+                                        AstPlaceholder
+                                else
 
 
                                         let aug_args := 
                                             let arg_list := rev (lift_context 1 #|non_uni_param_ctx| arg_ctx) in (* ind is tRel (param+1) the +1 to lift over P *)
-                                            augment_arguments2 param_ctx non_uni_param_ctx indice_ctx arg_list 
+                                            augment_arguments2 param_ctx non_uni_param_ctx indice_ctx case_ctx arg_list 
                                         in (* virtually behind ∀ Params P. • *)
 
 
@@ -1208,7 +1331,7 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
 
 
 (* Load test_types. *)
-Load param_test.
+(* Load param_test. *)
 MetaCoq Run (
     (* t <- tmQuote (nat);; *)
     (* t <- tmQuote (list);; *)
@@ -1219,17 +1342,23 @@ MetaCoq Run (
     (* t <- tmQuote (depTest);; *)
     (* t <- tmQuote (implicitTest);; *)
 
+        (* needs non uni manually set to 1 *)
     (* t <- tmQuote (nonUniTest);; *)
     (* t <- tmQuote (nonUniDepTest);; *)
 
     (* t <- tmQuote (boolᵗ);; *)
     (* t <- tmQuote (natᵗ);; *)
     (* t <- tmQuote (listᵗ);; *)
-    t <- tmQuote (vecᵗ);;
+    (* t <- tmQuote (vecᵗ);; *)
     (* t <- tmQuote (roseᵗ);; *)
     (* t <- tmQuote (roseSAᵗ);; *)
     (* t <- tmQuote (roseAᵗ);; *)
+    (* t <- tmQuote (dNestᵗ);; *)
+    t <- tmQuote (dNestLᵗ);;
+    (* t <- tmQuote (noRoseᵗ);; *)
 
+    (* t <- tmQuote (guardTestᵗ);; *)
+        (* needs non uni manually set to 2 *)
     (* t <- tmQuote (nonUniDepTestᵗ);; *)
 
     (fix f t := match t with
