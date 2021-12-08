@@ -133,120 +133,6 @@ Fixpoint local_subst_ (s:list term) (n:nat) (k:nat) (t:term) :=
 Definition local_subst s n := local_subst_ s n 0.
 
 
-(* Definition beta_reduce (t:term) : term.
-    refine(term_ind_size_app (fun _ => term)
-        tRel
-        tVar
-        (fun n l _ => tEvar n l)
-
-
-        ).
-
-    apply term_ind_size_app.
-    -  *)
-
-(* Fixpoint beta_reduce (t:term) : term :=
-    let f := beta_reduce in
-    match t with 
-    | tApp (tLambda _ _ body) b =>
-        (beta_reduce body) {0:=b}
-        (* identity folding *)
-    | tEvar n xs =>
-        tEvar n (map f xs)
-    | tProd na a b =>
-        tProd na (f a) (f b)
-    | tLambda na a b =>
-        tLambda na (f a) (f b)
-    | tLetIn na a b c =>
-        tLetIn na (f a) (f b) (f c)
-    | tApp a b => 
-        match f a with 
-        | tLambda _ _ body =>
-            body {0:=b}
-        | ra => tApp ra (f b)
-        end
-    | tProj p a => 
-        tProj p (f a)
-    (* ignore tCase, tFix, tCoFix *)
-    | _ => t
-    end. *)
-
-(* Fixpoint beta_reduce_ n (t:term) : term :=
-    match n with
-    | 0 => t
-    | S m =>
-    let f := beta_reduce_ m in
-    match t with 
-    | tApp (tLambda _ _ body) b =>
-        beta_reduce_ m (body{0:=b})
-        (* identity folding *)
-    | tEvar n xs =>
-        tEvar n (map f xs)
-    | tProd na a b =>
-        tProd na (f a) (f b)
-    | tLambda na a b =>
-        tLambda na (f a) (f b)
-    | tLetIn na a b c =>
-        tLetIn na (f a) (f b) (f c)
-    | tApp a b => 
-        match f a with
-        | tLambda _ _ _ => f (tApp (f a) b)
-        | _ => tApp (f a) (f b)
-        end
-        (* f (tApp (f a) (f b)) *)
-    | tProj p a => 
-        tProj p (f a)
-    (* ignore tCase, tFix, tCoFix *)
-    | _ => t
-    end
-    end.
-Definition beta_reduce := beta_reduce_ 1000. *)
-
-(* Program Fixpoint beta_reduce (t:term) : term :=
-    let f := beta_reduce in
-    match t with 
-    | tApp (tLambda _ _ body) b =>
-        beta_reduce (body{0:=b})
-        (* identity folding *)
-    | tEvar n xs =>
-        tEvar n (map f xs)
-    | tProd na a b =>
-        tProd na (f a) (f b)
-    | tLambda na a b =>
-        tLambda na (f a) (f b)
-    | tLetIn na a b c =>
-        tLetIn na (f a) (f b) (f c)
-    | tApp a b => 
-        tApp (f a) (f b)
-    | tProj p a => 
-        tProj p (f a)
-    (* ignore tCase, tFix, tCoFix *)
-    | _ => t
-    end. *)
-
-(* Compute (beta_reduce (
-    tApp 
-    (tApp 
-    (tLambda (relevant_binder nAnon) (tEvar 0 []) 
-    (tLambda (relevant_binder nAnon) (tEvar 0 []) 
-        (tApp (tRel 0) (tRel 1))
-    )
-    )
-    (tRel 42))
-    (tRel 60)
-    )
-). *)
-
-(* Compute (beta_reduce (
-    tApp 
-    (tLambda (relevant_binder nAnon) (tEvar 0 []) 
-    (tLambda (relevant_binder nAnon) (tEvar 0 []) 
-        (tRel 0)
-    )
-    )
-    (tRel 42)
-    )
-). *)
 
 
     (* TODO: there once was a function doing this already (was it mkApp in a previous version?) *)
@@ -311,125 +197,6 @@ Fixpoint mkEagerApps (t:term) (us:list term) : term :=
     None - if no induction is possible or the special kind of induction is not supported
     
     *)
-(* Fixpoint create_induction_hypothesis (mode:creation_mode) (param_ctx non_uni_param_ctx indice_ctx:context) (ind_pos call_pos:nat) (t:term) : option term :=
-    match t with 
-    | tRel p =>
-        (*
-        a tRel is a reference to some argument/parameter/... in the inductive type
-        *)
-        if p =? ind_pos then
-            (*
-            if the tRel points to ind_pos, 
-            this term is a self reference => induction is possible
-
-            we want to replace it with an application to P/f (the fixpoint) which is tRel call_pos
-            but these functions only expect the non_uni params, indices and the instance not the parameters
-            but the inductive type is fully instantiated with the params, the non_uni (or instantiations thereof),
-                and the indices
-            
-            therefore, we consume all parameters using lambdas without usage of there argument
-            the resulting term takes all params and leaves and (eta-reduces) term of type 
-                P: ∀ non_uni indices inst, Type (for assumptions)
-                f: ∀ non_uni indices inst, P non_uni indices inst (for proofs)
-            
-            due to the new lambdas, #|param_ctx| has to be added to the call_pos because the call lies under the new lambdas
-
-            strictly speaking, we have to give correct types to the lambdas that take the parameters although their instantiation is clear
-                with correct lifting (only easy for assumptions), this is param_ctx
-                alternatively, we could place dummy values in the lambdas and using eager
-                    application with lambda instantiation (mkEagerApp), we could fill them in during construction
-                    resulting in a lambda free resulting term
-                for proofs we are free to use holes (even without mkEagerApp) as the cast in the later usage 
-                    guarantees an instantiation of the evars
-
-            read on in the tApp case to see how the instantiation of non_uni and indices is correctly computed
-            (reminder: the instantiation of the instance is outside the lemma and is the task of the caller)
-            *)
-
-            (* skip parameters and shift call_pos accordingly to sacrificial lambdas *)
-            (* holes only possible for proof *)
-            (* TODO: move sacrificial lambda outside (see local stashed commit) *)
-            if mode is IHProof then
-                (* not necessary to have holes but saves from having trouble with liftings *)
-                ret (it_mkLambda_or_LetIn (map_context (fun _ => hole) param_ctx) (tRel (#|param_ctx|+call_pos)))
-            else
-                (* one could use the eager app trick and holes, but param_ctx is already the correct instantiation and is easy enough *)
-                ret (it_mkLambda_or_LetIn param_ctx (tRel (#|param_ctx|+call_pos)))
-        else 
-            (* anything else like params, references arguments, ... do not allow for induction *)
-            None
-    | tApp a b =>
-        (*
-        when computing the induction hypothesis for an argument
-        we encounter 'ind (as tRel) params non_uni indices' => many applications around the main center of the inductive
-        one possibility is to decompose the application, skip the params, subst the core, and recompose it
-        but this is not generalizable to guarded induction and nested induction
-
-        therefore, we write a more general and local mapping by traversal
-
-        if we encounter an application (with the params, non_uni, or indices) we recurse in the
-            core of the application to compute the induction hypothesis and reapply the application argument
-        this guarantees that we reapply all non_uni and indices (necessary) but we also apply the params
-        therefore, the innermost body (the ind tRel) has to throw them away by skipping the params using lambdas
-        there are no explicit lambdas to take the non_uni and indices
-        instead, we apply them directly to the eta-reduced tRel for call_pos
-        *)
-        s <- create_induction_hypothesis mode param_ctx non_uni_param_ctx indice_ctx ind_pos call_pos a;;
-        if mode is IHProof then
-            ret (mkEagerApp s hole)
-            (* alternative: ret (tApp s hole) *)
-        else
-            ret (mkEagerApp s b)
-
-    | tProd na ty b =>
-        (* tProd is important for guarded induction
-            removing this case disables guarded induction of the form
-            (f: nat -> ind) (IH_f: forall n, P (f n))
-
-            the induction hypothesis should also have all quantification
-            but we also need to apply all quantifications to the argument in question
-            to get the inductive instance (but we do not have access to the argument directly)
-
-            therefore, we use a few η and β reductions and expansions
-
-            we first compute the hypothesis for the body of the quantification 
-            we have to lift the contexts and raise the ind_pos and call_pos to 
-                accomodate for the new binder
-            we perform eta expansion to explicitely take the argument with a lambda,
-            then we apply the quantified argument (the guard of the induction)
-                tApp (tRel 1) (tRel 0)
-            this application is the new argument for the inner induction hypothesis
-            therefore, we apply it to s 
-                (which has to be liftet over the eta-expansion but only from 
-                    de Bruijn index 1 and higher in order to preserve the binder tProd)
-            we use eager application to resolve all intermediately produced lambdas
-                a) for a cleaner term
-                b) more importantly: to avoid having to specify the types in the 
-                    sacrificial tLambda as these are complicated to construct
-                    but we also can not use holes when construction the assumption
-
-            for the proofs the quantification tProd is translated to a tLambda
-         *)
-        s <- create_induction_hypothesis mode 
-            (lift_context 1 0 param_ctx) 
-            (lift_context 1 0 non_uni_param_ctx) 
-            (lift_context 1 0 indice_ctx) 
-            (S ind_pos) (S call_pos) b;;
-        ret(tLambda rAnon (hole) (* hole is here not possible but we use eager beta reduction *)
-        (
-            (* lift for sacrificial lambda *)
-            (
-                if mode is IHProof then
-                    tLambda na hole
-                else
-                    tProd na (lift0 1 ty)
-            )
-            (mkEagerApps 
-            (lift 1 1 s) (* lift behind na over sacrificial lambda *)
-            [mkApps (tRel 1) [tRel 0]]) (* arg a *)
-        ))
-    | _ => None
-    end.
 
 
 (*
@@ -455,68 +222,6 @@ As we handle induction hypotheses and the proofs all in one place,
 this is the only place to adjust the difference induction hypotheses
 => it is possible to toggle between case analysis and induction hypotheses in the function
 *)
-Definition augment_arguments (mode:creation_mode) (param_ctx non_uni_param_ctx indice_ctx:context) (xs:list context_decl) : list (@assumption_type (context_decl)) := 
-    let hyp (arg:context_decl) t := IH (vass (extendAname "IH_" arg.(decl_name) "") t) in
-
-    fold_left_i
-    (fun assumptions i arg =>
-        let ind_pos := #|param_ctx|+1+#|non_uni_param_ctx|+i in (* virtual position of the inductive type represented by tRel in the ctor arguments *) 
-        if mode is IHAssumption then
-            (* behind other ctor arguments and non-uni params *)
-            let pred_pos := #|non_uni_param_ctx|+i in (* the predicate P *)
-            (* the augemented assumption as induction hypothesis or None if no induction is possible for this argument *)
-            let asm := create_induction_hypothesis IHAssumption param_ctx non_uni_param_ctx indice_ctx ind_pos pred_pos arg.(decl_type) in
-        
-            let IHs := 
-                if asm is (Some asm_body) then
-                    (* induction possible *)
-                    (* lift over argument to get correct de Bruijn indices
-                        and apply with the argument (eagerly => instantiate lambdas directly) to supply
-                            the inductive instance
-                     *)
-                    [hyp arg (mkEagerApps (lift0 1 asm_body) [tRel 0])]
-                    (* [] *) (* this results in no induction hypotheses => case analysis *)
-                else 
-                    (* no induction possible *)
-                    []
-            in
-
-            assumptions++[Argument arg]++IHs
-        else 
-            (* xs is some mapping of arg_ctx => number of arguments *)
-            (* behind all arguments, the instance, indices, and non_uni params 
-                keep in mind that the match all arguments are quantified
-                and the case is called and instantiation
-                therefore, the index of the fixpoint does not depend on which argument is under consideration right now
-             *)
-            let fix_pos := #|xs|+1+#|indice_ctx|+#|non_uni_param_ctx| in
-            (* the proof the induction hypothesis (if one exists) or None otherwise
-                (the result is waiting for the argument to be supplied)
-             *)
-            let asm := create_induction_hypothesis IHProof param_ctx non_uni_param_ctx indice_ctx ind_pos fix_pos arg.(decl_type) in
-            (* select the ith argument from the constructor arguments
-                    due to de Bruijn we need to write N-i-1 to get the ith of N arguments
-                we can not influence the order as it is given by the construction of a tCase
-                    (but maybe it should stay in correct order to be less confusing in other areas)
-            *)
-            let argument := tRel (#|xs| - i - 1) in
-        
-            let IHs := 
-                if asm is (Some asm_body) then
-                    (* suplly the body with the argument *)
-                    [hyp arg (mkEagerApps asm_body [argument])]
-                    (* [] *) (* this results in no induction hypotheses => case analysis *)
-                else 
-                    (* the argument does not allow for induction *)
-                    []
-            in
-
-            (* add argument instantiation (tRel) and proof the induction hypothesis (call to f and a bit of stuff around it)
-                as application arguments *)
-            assumptions++[Argument (vass rAnon argument)]++IHs
-    )
-    xs
-    []. *)
 
 Load param_test.
 
@@ -629,30 +334,7 @@ From MetaCoq.PCUIC Require Import
 
 Definition hole := tEvar fresh_evar_id [].
 
-(* Fixpoint decompose_apps xs t := 
-    match t with 
-    | tApp a b => 
-        decompose_apps (xs++[b]) a
-    | _ => (xs,t)
-    end.
 
-Lemma decompose_mk t xs ys:
-    ~isApp t ->
-    decompose_apps ys (mkApps t xs) = (xs++ys,t).
-Proof.
-    revert ys; 
-    induction xs using rev_ind;intros ys.
-    - now destruct t;cbn.
-    - rewrite mkApps 
-    refine (rev_list_ind _ _ _ _ xs).
-    apply rev_list_ind.
-    induction xs using rev_list_ind;cbn.
-    - now destruct t;cbn.
-    - 
-    induction t;cbn;try congruence;intros _.
-    -  *)
-(* Lemma recompose_apps t b xs:
-    decompose  *)
 
 
 Definition get_hypothesis param_ctx (ind_pos:nat) (pred_pos:nat) (t:term) :=
@@ -929,6 +611,8 @@ forall
 feel free to inspect the git history to see the different stages
 
 *)
+
+
 Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body) (ind:one_inductive_body) :=
     let ind_term := tInd inductive uinst in
     (* auxiliary definitions (mostly for testing purposes) *)
@@ -1045,14 +729,6 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
         augment_arguments mode param_ctx non_uni_param_ctx indice_ctx arg_list 
     in *)
 
-    (* let case_ctx :=
-        (rev(
-            mapi (fun i ctor => 
-                vass (rName ("H_"^ctor.(cstr_name))) 
-                (* TODO: maybe refactor out the lifting offsets for clarity? *)
-                (* TODO: a more functional way would be nested lifting *)
-                ( (* type of the case assumption (in here lies (part of) the magic of induction) *)
-
                     (*
                         each ctor is mapped to 
                         ∀ non-uni args (possibly IH), P non-uni indices (Ctor params non-uni args)
@@ -1069,64 +745,16 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
                     (* argument context for the constructor 
                         (how to obtain manually: quantifications of cstr_type without params, non-uni) 
                         the number of args is also cstr_arity *)
-                    let arg_ctx := ctor.(cstr_args) in
+                    (* let arg_ctx := ctor.(cstr_args) in *)
                     (* index instantiation for the conclusion of the ctor 
                         (how to obtain manually: extract of the app from the conclusion of cstr_type) *)
-                    let ind_list := ctor.(cstr_indices) in
+                    (* let ind_list := ctor.(cstr_indices) in *)
 
                     (* replace floating ind reference (behind params) with inductive type (for arguments) 
                         at position prev. cases + predicate + params
                     *)
-                    subst [ind_term] (i+1+#|param_ctx|)
+                    (* subst [ind_term] (i+1+#|param_ctx|) *)
                     (* lift non-uni params over other cases and over the predicate => directly behind params *)
-                    (
-                        (* lift over other cases for easier view *)
-                        lift0 i (
-                            (* viewpoint: ∀ params P. • <- here *)
-
-                            (* lift over P *)
-                            quantify (lift_context 1 0 non_uni_param_ctx)
-                            (fold_right
-                            (fun arg t =>
-                                (* arg of type assumption_type *)
-                                match arg with
-                                | Argument x => mkProd_or_LetIn x t
-                                | IH y => 
-                                    mkProd_or_LetIn y (lift0 1 t) (* lift everything over new assumptions *)
-                                end
-                            )
-                            (
-                            (* the innerbody under ∀ non-uni args (augmented). • *)
-                                let ctor_inst :=
-                                    mkApps 
-                                        (tConstruct inductive i uinst)
-                                        (
-                                            (* lift over args, non-uni, and predicate *)
-                                            map (lift0 (#|arg_ctx|+#|non_uni_param_ctx|+1)) (mkRels #|param_ctx|) ++ (* params *)
-                                            (* locally quantified non-uni behind args *)
-                                            map (lift0 #|arg_ctx|) (mkRels #|non_uni_param_ctx|) ++ (* non-uni *)
-                                            map (lift0 0) (mkRels #|arg_ctx|) (* args *)
-                                        )
-                                in
-                                mkApps 
-                                    (* lift over args, non-uni *)
-                                    (tRel (#|arg_ctx|+#|non_uni_param_ctx|)) (* predicate *)
-                                    (
-                                        map (lift0 #|arg_ctx|) (mkRels #|non_uni_param_ctx|) ++ (* non-uni *)
-                                        (* lift over P to reach params *)
-                                        map (lift 1 (#|arg_ctx|+#|non_uni_param_ctx|) ) ind_list ++ (* index instantiation *)
-                                        [ctor_inst] (* constructor instance *)
-                                    )
-                            )
-                            (augmented_args IHAssumption arg_ctx)
-                            (* (map Argument (rev (lift_context 1 #|non_uni_param_ctx| arg_ctx))) *)
-                            )
-                        )
-                    )
-                )
-            ) ind.(ind_ctors)
-        ))
-    in *)
 
 
     let case_ctx :=
@@ -1161,17 +789,6 @@ Definition createInductionPrinciple inductive uinst (mind:mutual_inductive_body)
                             (it_mkProd_or_LetIn ctor_arg_ctx body)
                         )
                         (* ) *)
-
-
-                        (* 
-                        (* subst [tRel i] (i+1+#|param_ctx|)  *)
-                        subst [ind_term] (i+1+#|param_ctx|) 
-                        (* lift over other cases for correct param access *)
-                        (lift0 (i+1)
-                            (* take non-uniform in ctor case; lift over predicate for param access *)
-                            (quantify (lift_context 1 0 non_uni_param_ctx)
-                            ctor.(cstr_type))
-                        ) *)
                     )
                     (* ctor.(cstr_type) *)
             ) ind.(ind_ctors)
