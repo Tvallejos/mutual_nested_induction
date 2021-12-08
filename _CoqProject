@@ -1,0 +1,7 @@
+-R . MetaCoq.Induction
+
+util.v
+functorial.v
+functorial_lookup.v
+induction.v
+commands.v

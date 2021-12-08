@@ -1,32 +1,20 @@
-Load param_test.
-Import Nat.
-Local Open Scope nat.
+Require Import util.
+
+From MetaCoq.Template Require Import All.
+
+From MetaCoq Require Import All.
+Require Import String List.
+(* Local Open Scope string. *)
+Import ListNotations Nat.
+Import MCMonadNotation.
+
 From MetaCoq.PCUIC Require Import 
      PCUICAst PCUICAstUtils PCUICInduction
      PCUICLiftSubst PCUICEquality
      PCUICUnivSubst PCUICTyping PCUICGeneration.
 
-Definition relevant_binder (n:name) :=
-    {|
-    binder_name := n;
-    binder_relevance := Relevant
-    |}.
-Definition rAnon := relevant_binder nAnon.
-Definition rName n := relevant_binder (nNamed n).
-(* generates a list (n-1), ..., 0 *)
-Fixpoint mkNums (n:nat) :=
-    match n with 
-    | O => []
-    | S m => [m] ++ mkNums m
-    end.
-(* generates a list tRel (n-1), ..., tRel 0 *)
-Fixpoint mkRels (n:nat) := map tRel (mkNums n).
-Fixpoint mkAstRels (n:nat) := map Ast.tRel (mkNums n).
-
-Definition hole := tEvar fresh_evar_id [].
-Variable (TODO: forall {T}, T).
-Definition AstPlaceholder := Ast.mkApp <% @TODO %> (Ast.hole).
-Definition placeholder := TemplateToPCUIC.trans [] AstPlaceholder.
+From MetaCoq.PCUIC Require Import TemplateToPCUIC.
+From MetaCoq.PCUIC Require Import PCUICToTemplate.
 
 Section Functorial.
 
@@ -100,9 +88,10 @@ Section Functorial.
             (re_lift xs)
         end. *)
 
-    Definition type := 
+    Definition type_ := 
         let '((groups,arg1,arg2),aug_args) := augment (rev param_ctx) [] [] in
         let aug_args_ctx := rev (aug_args) in
+        (groups,
         (* let arg1' := app_arg_list #|indice_ctx| arg1 in
         let arg2' := app_arg_list #|indice_ctx| arg2 in *)
         it_mkProd_or_LetIn 
@@ -117,8 +106,14 @@ Section Functorial.
         (* (mkApps ind_term [tRel 4;tRel 3;tRel 0]) *)
         (mkApps ind_term (map tRel arg1))
         (lift0 1 (mkApps ind_term (map tRel arg2)))
-        )
+        ))
         .
+
+    Definition functorial_type_groups :=
+        on_snd PCUICToTemplate.trans type_.
+
+    Definition type := snd type_.
+
     Definition functorial_type :=
     PCUICToTemplate.trans type.
 
@@ -146,48 +141,3 @@ Ltac ind_on_last :=
   end.
 Global Obligation Tactic := cbn;ind_on_last;econstructor;auto.
 
-
-MetaCoq Run (
-    (* t <- tmQuote (listᵗ);; *)
-    t <- tmQuote (vecᵗ);;
-    (* t <- tmQuote (conᵗ);; *)
-    (* t <- tmQuote (roseAᵗ);; *)
-
-    (fix f t := match t with
-    Ast.tInd ({| inductive_mind := k |} as inductive) uinst => 
-    ib <- tmQuoteInductive k;;
-    match Env.ind_bodies ib with 
-    | [oind] => 
-        let mindPC := TemplateToPCUIC.trans_minductive_body [] ib in
-        let oindPC := TemplateToPCUIC.trans_one_ind_body [] oind in
-        (* let il := getInd oindPC in *)
-         tmMsg "==============";;
-         tmMsg "===Ind term===";;
-         tmMsg "==============";;
-         tmPrint (tInd inductive uinst);;
-         tmMsg "==============";;
-         tmMsg "===Ind type===";;
-         tmMsg "==============";;
-        mind <- tmEval lazy mindPC;;
-        t <- tmEval lazy oindPC;;
-         tmPrint t;;
-         tmMsg "===============";;
-         tmMsg "===Ind lemma===";;
-         tmMsg "===============";;
-        (* lemma <- tmEval lazy (functorial inductive uinst mind t);; *)
-        type <- tmEval lazy (functorial_type inductive uinst t);;
-        tt <- tmUnquoteTyped Type type;;
-         tmPrint type;; (* this can not be read *)
-         lemma <- tmLemma "test" (tt:Type);;
-         tmPrint lemma
-        (* lemma <- tmEval lazy (functorial inductive uinst t);;
-         tmPrint lemma;; (* this can not be read *)
-         tmMkDefinition "test" lemma *)
-    | [] => tmFail "no inductive body found"
-    | _ => tmFail "too many inductive bodies (currently, mutual induction is not supported)"
-    end
-    | Ast.tApp t _ => f t (* resolve partial evar application *)
-    | _ => tmFail "Not an inductive type, maybe try @ind for implicit arguments"
-    end) t
-).
-Print test.

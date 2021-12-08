@@ -1,3 +1,5 @@
+Require Import functorial.
+
 From MetaCoq.Template Require Import All.
 
 From MetaCoq Require Import All.
@@ -21,6 +23,23 @@ Class functorial_instance (func_ind:inductive) :=
      }.
 
 Section Generation.
+
+Fixpoint collect_tInd_term  (t:term) : list inductive :=
+    match t with
+    | tInd ind _ => [ind]
+    | tApp a b
+    | tProd _ a b
+    | tLambda _ a b =>
+        collect_tInd_term a ++ collect_tInd_term b
+    | _ => []
+    end.
+
+Definition collect_tInd (ind:one_inductive_body) : list inductive :=
+    collect_tInd_term ind.(ind_type) ++
+    concat (map
+    (fun ctor => collect_tInd_term ctor.(cstr_type))
+    ind.(ind_ctors)).
+
 
 Definition lookup_table (xs:list inductive) : 
     TemplateMonad (list (inductive * (nat * term))) :=
