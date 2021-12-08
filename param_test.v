@@ -65,5 +65,11 @@ Print dNestLᵗ.
 MetaCoq Run (TC <- Translate list_TC "noRose" ;;
                 tmDefinition "noRose_TC" TC ).
 Print noRoseᵗ.
+MetaCoq Run (TC <- Translate list_TC "con" ;;
+                tmDefinition "con_TC" TC ).
+Print conᵗ.
+MetaCoq Run (TC <- Translate con_TC "roseCon" ;;
+                tmDefinition "roseCon_TC" TC ).
+Print roseConᵗ.
 
 (* TODO: parametricity of typed with functions like List.app, Addition, ... *)

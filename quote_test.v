@@ -17,7 +17,7 @@ From MetaCoq.PCUIC Require Import PCUICToTemplate.
 Load param_test.
 
 MetaCoq Run (
-    tmQuote (@listᵗ)
+    tmQuote (@vecᵗ)
     >>= tmPrint
 ).
 

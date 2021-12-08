@@ -29,6 +29,9 @@ Inductive vec (A : Type) : nat -> Type :=
 Inductive list2 (A : Type) : Type :=
 	nil2
   | cons2 (a:A) (xs:list2 A).
+Inductive con (A : Type) (n:nat) : Type :=
+	conB : con A n
+  | conS : A -> con A n -> con A n.
   (* universe constraints in parametricity (original) *)
 Inductive noRose : Prop := NoNode (xs:list nat).
 Inductive rose : Prop := Node (xs:list rose).
@@ -37,3 +40,4 @@ Inductive roseSA (A:Type) : Prop := LeafSA (a:A).
 Inductive roseA (A:Type) : Prop := LeafA (a:A) | NodeA (xs:list (roseA A)).
 Inductive dNest (A:Type) : Prop := DN (n:nat) (H:vec (list2 (dNest A)) n).
 Inductive dNestL (A:Type) : Prop := DNL (H:list (list (dNestL A))).
+Inductive roseCon : Type := NodeCon (xs:con roseCon 0).

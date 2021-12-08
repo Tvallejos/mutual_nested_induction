@@ -529,8 +529,38 @@ Definition listᵗ_func
     end
     .
 
+(* Goal forall n (H:natᵗ n) (H2:natᵗ n), H -> H2. *)
+    (* (nᵗ':natᵗ n) (F_n: True -> True -> True)  (* F_n: nᵗ -> nᵗ' *)
+    *)
+Definition conᵗ_func 
+    (* params *)
+    (A:Type) (Aᵗ:A->Type) (Aᵗ':A->Type) (F_A:forall a, Aᵗ a -> Aᵗ' a) 
+    (n:nat) (nᵗ:natᵗ n) (nᵗ':natᵗ n) (F_n: True -> True -> True)
+    (* indices *)
+        (x:con A n) 
+    (xᵗ:conᵗ A Aᵗ n nᵗ x) : conᵗ A Aᵗ' n nᵗ' x.
+induction xᵗ.
+- constructor.
+- constructor; auto.
+Defined.
+
+Definition vecᵗ_func 
+    (* params *)
+    (A:Type) (Aᵗ:A->Type) (Aᵗ':A->Type) (F_A:forall a, Aᵗ a -> Aᵗ' a) 
+    (* indices *)
+    (n:nat) (nᵗ:natᵗ n) 
+        (x:vec A n) 
+    (xᵗ:vecᵗ A Aᵗ n nᵗ x) : vecᵗ A Aᵗ' n nᵗ x.
+induction xᵗ.
+(* From Equations Require Import Equations. *)
+- constructor.
+- constructor;auto.
+Defined.
+
 Definition listᵗ_inductive := 
     {| inductive_mind := (MPfile ["induction"], "listᵗ"); inductive_ind := 0 |}.
+Definition vecᵗ_inductive := 
+    {| inductive_mind := (MPfile ["induction"], "vecᵗ"); inductive_ind := 0 |}.
 
 Import Nat.
 Local Open Scope nat.
