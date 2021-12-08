@@ -302,14 +302,35 @@ Definition conᵗ_inductive :=
 Definition roseAᵗ_inductive := 
     {| inductive_mind := (MPfile ["induction"], "roseAᵗ"); inductive_ind := 0 |}.
 
-(* Record functorial_instance :=
-     {
-         func_ind : inductive;
-         param_groups : nat;
-         func_lemma : term;
-     }. *)
+Load functorial_lookup.
 
-Definition lookup_table : list (inductive * (nat * term)) := 
+Instance listᵗ_func_inst : functorial_instance (listᵗ_inductive) :=
+    {|
+        param_groups := 1;
+        func_lemma := TemplateToPCUIC.trans [] <% listᵗ_func %>
+    |}.
+Instance list2ᵗ_func_inst : functorial_instance (list2ᵗ_inductive) :=
+    {|
+        param_groups := 1;
+        func_lemma := TemplateToPCUIC.trans [] <% list2ᵗ_func %>
+    |}.
+Instance vecᵗ_func_inst : functorial_instance (vecᵗ_inductive) :=
+    {|
+        param_groups := 1;
+        func_lemma := TemplateToPCUIC.trans [] <% vecᵗ_func %>
+    |}.
+Instance conᵗ_func_inst : functorial_instance (conᵗ_inductive) :=
+    {|
+        param_groups := 2;
+        func_lemma := TemplateToPCUIC.trans [] <% conᵗ_func %>
+    |}.
+Instance roseAᵗ_func_inst : functorial_instance (roseAᵗ_inductive) :=
+    {|
+        param_groups := 2;
+        func_lemma := TemplateToPCUIC.trans [] <% roseAᵗ_func %>
+    |}.
+
+(* Definition lookup_table : list (inductive * (nat * term)) := 
     [
             (* 1 group of params *)
         (listᵗ_inductive,(1,TemplateToPCUIC.trans [] <% listᵗ_func %>));
@@ -319,7 +340,7 @@ Definition lookup_table : list (inductive * (nat * term)) :=
             (* 2 group of params *)
         (conᵗ_inductive,(2,TemplateToPCUIC.trans [] <% conᵗ_func %>));
         (roseAᵗ_inductive,(1,TemplateToPCUIC.trans [] <% roseAᵗ_func %>))
-    ].
+    ]. *)
 
 Import Nat.
 Local Open Scope nat.
@@ -331,7 +352,9 @@ From MetaCoq.PCUIC Require Import
 Definition hole := tEvar fresh_evar_id [].
 
 
+Section IH.
 
+Variable (lookup_table : list (inductive * (nat * term))).
 
 Definition get_hypothesis param_ctx (ind_pos:nat) (pred_pos:nat) (t:term) :=
     let param_pos := pred_pos + 1 in
@@ -433,6 +456,9 @@ Fixpoint create_proof_term_ (fuel:nat) (param_ctx non_uni_param_ctx indice_ctx:c
         | tInd ind inst =>
             (* nested type *)
             let lookup_opt := find (fun '(a,_) => eq_inductive ind a) lookup_table in
+            (* let (group_count,lookup) := _ : functorial_instance ind in
+            let group_count := lookup_inst.(param_groups) in
+            let lookup := lookup_inst.(func_lemma) in *)
             if lookup_opt is Some (_,(group_count, lookup)) then
                 (* ret placeholder *)
                 (* let lookup := TemplateToPCUIC.trans [] <% listᵗ_func %> in *)
@@ -1033,6 +1059,7 @@ Definition createInductionPrinciple :=
 
 End Principle.
 
+End IH.
 
 
 

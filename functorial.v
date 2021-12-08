@@ -119,6 +119,8 @@ Section Functorial.
         (lift0 1 (mkApps ind_term (map tRel arg2)))
         )
         .
+    Definition functorial_type :=
+    PCUICToTemplate.trans type.
 
     Definition functorial :=
     tCast 
@@ -132,6 +134,18 @@ Section Functorial.
     (PCUICToTemplate.trans type).
     
 End Functorial.
+
+
+Ltac ind_on_last :=
+  lazymatch goal with
+  | |- forall x y, ?H => intros ?;ind_on_last
+  | |- forall y, ?H => 
+      let inst := fresh "x" in
+      intros inst;induction inst (* using database *)
+  | _ => fail "not applicable"
+  end.
+Global Obligation Tactic := cbn;ind_on_last;econstructor;auto.
+
 
 MetaCoq Run (
     (* t <- tmQuote (listᵗ);; *)
@@ -161,9 +175,14 @@ MetaCoq Run (
          tmMsg "===Ind lemma===";;
          tmMsg "===============";;
         (* lemma <- tmEval lazy (functorial inductive uinst mind t);; *)
-        lemma <- tmEval lazy (functorial inductive uinst t);;
+        type <- tmEval lazy (functorial_type inductive uinst t);;
+        tt <- tmUnquoteTyped Type type;;
+         tmPrint type;; (* this can not be read *)
+         lemma <- tmLemma "test" (tt:Type);;
+         tmPrint lemma
+        (* lemma <- tmEval lazy (functorial inductive uinst t);;
          tmPrint lemma;; (* this can not be read *)
-         tmMkDefinition "test" lemma
+         tmMkDefinition "test" lemma *)
     | [] => tmFail "no inductive body found"
     | _ => tmFail "too many inductive bodies (currently, mutual induction is not supported)"
     end
