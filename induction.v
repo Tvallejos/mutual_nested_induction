@@ -520,7 +520,7 @@ Definition augment_arguments (mode:creation_mode) (param_ctx non_uni_param_ctx i
 
 Load param_test.
 
-Definition listᵗ_func 
+Definition listᵗ_func_
     (A:Type) (Aᵗ:A->Type) (Aᵗ':A->Type) (F_A:forall a, Aᵗ a -> Aᵗ' a)  :=
     fix f (x :list A) (xᵗ:listᵗ A Aᵗ x) : listᵗ A Aᵗ' x :=
     match xᵗ with
@@ -528,6 +528,20 @@ Definition listᵗ_func
     | consᵗ y yᵗ yr yrᵗ => consᵗ A Aᵗ' y (F_A y yᵗ) yr (f yr yrᵗ)
     end
     .
+
+Definition listᵗ_func 
+    (A:Type) (Aᵗ:A->Type) (Aᵗ':A->Type) (F_A:forall a, Aᵗ a -> Aᵗ' a) 
+    (x:list A) 
+    (xᵗ:listᵗ A Aᵗ x) : listᵗ A Aᵗ' x.
+    induction xᵗ;constructor;auto.
+    Defined.
+
+Definition list2ᵗ_func 
+    (A:Type) (Aᵗ:A->Type) (Aᵗ':A->Type) (F_A:forall a, Aᵗ a -> Aᵗ' a) 
+    (x:list2 A) 
+    (xᵗ:list2ᵗ A Aᵗ x) : list2ᵗ A Aᵗ' x.
+    induction xᵗ;constructor;auto.
+    Defined.
 
 (* Goal forall n (H:natᵗ n) (H2:natᵗ n), H -> H2. *)
     (* (nᵗ':natᵗ n) (F_n: True -> True -> True)  (* F_n: nᵗ -> nᵗ' *)
@@ -557,10 +571,54 @@ induction xᵗ.
 - constructor;auto.
 Defined.
 
+Definition roseA_nest_ind :=
+  fun (A : Type) (Aᵗ : A -> Type) (P : roseA A -> Prop)
+  (H_LeafAᵗ : forall a : A, Aᵗ a -> P (LeafA A a))
+  (H_NodeAᵗ : forall xs : list (roseA A),
+	          listᵗ (roseA A) P xs -> P (NodeA A xs)) =>
+fix f (H : roseA A) (instᵗ : roseAᵗ A Aᵗ H) {struct instᵗ} : P H :=
+  match instᵗ in (roseAᵗ _ _ H0) return (P H0) with
+  | @LeafAᵗ _ _ a aᵗ => H_LeafAᵗ a aᵗ
+  | @NodeAᵗ _ _ xs xsᵗ =>
+      H_NodeAᵗ xs (listᵗ_func (roseA A) (roseAᵗ A Aᵗ) P f xs xsᵗ)
+  end.
+
+Definition roseAᵗ_func 
+    (A:Type) (Aᵗ:A->Type) (Aᵗ':A->Type) (F_A:forall a, Aᵗ a -> Aᵗ' a) 
+    (x:roseA A) 
+    (xᵗ:roseAᵗ A Aᵗ x) : roseAᵗ A Aᵗ' x.
+    induction xᵗ using roseA_nest_ind;constructor;auto.
+Defined.
+
 Definition listᵗ_inductive := 
     {| inductive_mind := (MPfile ["induction"], "listᵗ"); inductive_ind := 0 |}.
+Definition list2ᵗ_inductive := 
+    {| inductive_mind := (MPfile ["induction"], "list2ᵗ"); inductive_ind := 0 |}.
 Definition vecᵗ_inductive := 
     {| inductive_mind := (MPfile ["induction"], "vecᵗ"); inductive_ind := 0 |}.
+Definition conᵗ_inductive := 
+    {| inductive_mind := (MPfile ["induction"], "conᵗ"); inductive_ind := 0 |}.
+Definition roseAᵗ_inductive := 
+    {| inductive_mind := (MPfile ["induction"], "roseAᵗ"); inductive_ind := 0 |}.
+
+(* Record functorial_instance :=
+     {
+         func_ind : inductive;
+         param_groups : nat;
+         func_lemma : term;
+     }. *)
+
+Definition lookup_table : list (inductive * (nat * term)) := 
+    [
+            (* 1 group of params *)
+        (listᵗ_inductive,(1,TemplateToPCUIC.trans [] <% listᵗ_func %>));
+        (list2ᵗ_inductive,(1,TemplateToPCUIC.trans [] <% list2ᵗ_func %>));
+            (* 1 group of params *)
+        (vecᵗ_inductive,(1,TemplateToPCUIC.trans [] <% vecᵗ_func %>));
+            (* 2 group of params *)
+        (conᵗ_inductive,(2,TemplateToPCUIC.trans [] <% conᵗ_func %>));
+        (roseAᵗ_inductive,(1,TemplateToPCUIC.trans [] <% roseAᵗ_func %>))
+    ].
 
 Import Nat.
 Local Open Scope nat.
@@ -696,12 +754,13 @@ Fixpoint create_proof_term_ (fuel:nat) (param_ctx non_uni_param_ctx indice_ctx:c
         let res := match body with
         | tInd ind inst =>
             (* nested type *)
-            if eq_inductive ind listᵗ_inductive then
+            let lookup_opt := find (fun '(a,_) => eq_inductive ind a) lookup_table in
+            if lookup_opt is Some (_,(group_count, lookup)) then
                 (* ret placeholder *)
-                let lookup := TemplateToPCUIC.trans [] <% listᵗ_func %> in
-                let args' := (fix f xs {struct xs} :=
-                    match xs with
-                    | a::aᵗ::ys =>
+                (* let lookup := TemplateToPCUIC.trans [] <% listᵗ_func %> in *)
+                let args' := (fix f groups xs {struct xs} :=
+                    match groups, xs with
+                    | S k, a::aᵗ::ys =>
                         let fa_opt := create_proof_term param_ctx non_uni_param_ctx indice_ctx ind_pos pred_pos call_pos aᵗ in
                         let fa := 
                             if fa_opt is Some x then
@@ -713,14 +772,14 @@ Fixpoint create_proof_term_ (fuel:nat) (param_ctx non_uni_param_ctx indice_ctx:c
                         hole:: (* a  = type *)
                         hole:: (* aᵗ = translated type *)
                         hole:: (* get_hypothesis param_ctx ind_pos pred_pos aᵗ = replace Tᵗ with P in aᵗ *)
-                        (*::fa *)
-                        (* ::placeholder *)
-                        (* placeholder:: *)
                         fa:: (* recursive proof *)
-                        f ys
-                    | _ => xs
+                        f k ys
+                    | _, _ => xs
+                    (* | _, [x] => xs *)
+                    (* | _, [] => xs *)
+                    (* | _, y::yr => hole::f groups yr *)
                     end
-                ) args in
+                ) group_count args in
                 ret (mkApps lookup args')
                 (* None *)
                 else 
@@ -1384,9 +1443,11 @@ MetaCoq Run (
     (* t <- tmQuote (roseSAᵗ);; *)
     (* t <- tmQuote (roseAᵗ);; *)
     (* t <- tmQuote (dNestᵗ);; *)
-    t <- tmQuote (dNestLᵗ);;
+    (* t <- tmQuote (dNestLᵗ);; *)
     (* t <- tmQuote (noRoseᵗ);; *)
 
+    (* t <- tmQuote (roseConᵗ);; *)
+    t <- tmQuote (roseRoseᵗ);;
     (* t <- tmQuote (guardTestᵗ);; *)
         (* needs non uni manually set to 2 *)
     (* t <- tmQuote (nonUniDepTestᵗ);; *)

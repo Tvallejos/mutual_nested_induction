@@ -41,3 +41,4 @@ Inductive roseA (A:Type) : Prop := LeafA (a:A) | NodeA (xs:list (roseA A)).
 Inductive dNest (A:Type) : Prop := DN (n:nat) (H:vec (list2 (dNest A)) n).
 Inductive dNestL (A:Type) : Prop := DNL (H:list (list (dNestL A))).
 Inductive roseCon : Type := NodeCon (xs:con roseCon 0).
+Inductive roseRose : Type := NodeRose (xs:roseA (roseRose)).

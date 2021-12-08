@@ -71,5 +71,8 @@ Print conᵗ.
 MetaCoq Run (TC <- Translate con_TC "roseCon" ;;
                 tmDefinition "roseCon_TC" TC ).
 Print roseConᵗ.
+MetaCoq Run (TC <- Translate roseA_TC "roseRose" ;;
+                tmDefinition "roseRose_TC" TC ).
+Print roseRoseᵗ.
 
 (* TODO: parametricity of typed with functions like List.app, Addition, ... *)
