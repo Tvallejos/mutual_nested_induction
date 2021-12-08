@@ -85,11 +85,6 @@ Variable (TODO: forall {T}, T).
 Definition AstPlaceholder := Ast.mkApp <% @TODO %> (Ast.hole).
 Definition placeholder := TemplateToPCUIC.trans [] AstPlaceholder.
 
-Inductive assumption_type {T} :=
-    | Argument (asm:T) | IH (asm:T).
-
-Variant creation_mode := IHAssumption | IHProof.
-
 (*
 n = destination
 k = local binder count
@@ -254,7 +249,8 @@ Definition list2ᵗ_func
 Definition conᵗ_func 
     (* params *)
     (A:Type) (Aᵗ:A->Type) (Aᵗ':A->Type) (F_A:forall a, Aᵗ a -> Aᵗ' a) 
-    (n:nat) (nᵗ:natᵗ n) (nᵗ':natᵗ n) (F_n: True -> True -> True)
+    (* (n:nat) (nᵗ:natᵗ n) (nᵗ':natᵗ n) (F_n: True -> True -> True) *)
+    (n:nat) (nᵗ:natᵗ n) (nᵗ':natᵗ n) (F_n: True)
     (* indices *)
         (x:con A n) 
     (xᵗ:conᵗ A Aᵗ n nᵗ x) : conᵗ A Aᵗ' n nᵗ' x.
@@ -449,7 +445,8 @@ Fixpoint create_proof_term_ (fuel:nat) (param_ctx non_uni_param_ctx indice_ctx:c
                                 x
                             else
                                 (* (λ x y: y) : ∀ (x:X), F x -> F x *)
-                                tLambda rAnon hole (tLambda rAnon hole (tRel 0))
+                                (* tLambda rAnon hole (tLambda rAnon hole (tRel 0)) *)
+                                TemplateToPCUIC.trans [] <% I %>
                         in
                         hole:: (* a  = type *)
                         hole:: (* aᵗ = translated type *)
@@ -1066,8 +1063,8 @@ MetaCoq Run (
     (* t <- tmQuote (dNestLᵗ);; *)
     (* t <- tmQuote (noRoseᵗ);; *)
 
-    (* t <- tmQuote (roseConᵗ);; *)
-    t <- tmQuote (roseRoseᵗ);;
+    t <- tmQuote (roseConᵗ);;
+    (* t <- tmQuote (roseRoseᵗ);; *)
     (* t <- tmQuote (guardTestᵗ);; *)
         (* needs non uni manually set to 2 *)
     (* t <- tmQuote (nonUniDepTestᵗ);; *)
