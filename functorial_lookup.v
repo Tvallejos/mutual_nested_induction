@@ -1,3 +1,9 @@
+(**
+Collects inductives from an one_inductive_body 
+that is, collect all inductive types appearing inside
+
+also generates a lookup table for functorial instances
+*)
 Require Import functorial.
 
 From MetaCoq.Template Require Import All.
@@ -24,6 +30,7 @@ Class functorial_instance (func_ind:inductive) :=
 
 Section Generation.
 
+(* recurses under binders and collects all inductives from tInd *)
 Fixpoint collect_tInd_term  (t:term) : list inductive :=
     match t with
     | tInd ind _ => [ind]
@@ -34,6 +41,7 @@ Fixpoint collect_tInd_term  (t:term) : list inductive :=
     | _ => []
     end.
 
+    (* takes inductives from type and constructors *)
 Definition collect_tInd (ind:one_inductive_body) : list inductive :=
     collect_tInd_term ind.(ind_type) ++
     concat (map
@@ -41,6 +49,10 @@ Definition collect_tInd (ind:one_inductive_body) : list inductive :=
     ind.(ind_ctors)).
 
 
+    (* looks up each inductive for a registered functorial instance
+    if one is found write down param group count and functorial lemma
+    into a list
+     *)
 Definition lookup_table (xs:list inductive) : 
     TemplateMonad (list (inductive * (nat * term))) :=
     monad_fold_left

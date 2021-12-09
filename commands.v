@@ -1,3 +1,9 @@
+(*
+commands to execute the programs
+one command to register a container
+and another one to generate an induction principle
+*)
+
 From MetaCoq.Induction Require Import 
     induction
     functorial 
@@ -21,6 +27,10 @@ From MetaCoq.PCUIC Require Import TemplateToPCUIC.
 From MetaCoq.PCUIC Require Import PCUICToTemplate.
 
 
+(*
+extracts inductive, mutual_inductive_body, one_inductive_body and universe instance
+and applies a given program function
+*)
 Definition fun_on_ind g (verbose:bool) {T} (rt:T) :=
     t <- tmQuote (rt);;
     (fix f t := match t with
@@ -33,7 +43,6 @@ Definition fun_on_ind g (verbose:bool) {T} (rt:T) :=
         mind <- tmEval lazy mindPC;;
         t <- tmEval lazy oindPC;;
         (if verbose then
-        (* let il := getInd oindPC in *)
          tmMsg "==============";;
          tmMsg "===Ind term===";;
          tmMsg "==============";;
@@ -52,6 +61,9 @@ Definition fun_on_ind g (verbose:bool) {T} (rt:T) :=
     | _ => tmFail "Not an inductive type, maybe try @ind for implicit arguments"
     end) t.
 
+    (*
+    generates an induction principle
+    *)
 Definition createIH (verbose:bool) {T} rt:=
     @fun_on_ind (
         fun inductive uinst mind t =>
@@ -71,6 +83,10 @@ Definition createIH (verbose:bool) {T} rt:=
     ) verbose T rt.
 
 
+    (*
+    creates a functorial lemma type
+    and open an obligation for the lemma (and maybe solves it already)
+    *)
 Definition createFunctorial (verbose:bool) {T} rt:=
     @fun_on_ind (
         fun inductive uinst mind t =>

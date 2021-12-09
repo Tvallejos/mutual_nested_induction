@@ -2,8 +2,11 @@
 created using github coq-8.13 branch (f000a1d66428370ac98685fb8aaca79c225a91c0)
 not opam coq-metacoq 1.0~beta2+8.13
     as the opam version has less useful definitions for inductive types, cases, ...
+
+For a more intuive (but in parts slightly longer) implementation of induction
+with many explanations see
+https://github.com/NeuralCoder3/nested_induction_v2/blob/main/induction.v
 *)
-Require Import util.
 
 From MetaCoq.Template Require Import All.
 
@@ -21,24 +24,7 @@ From MetaCoq.PCUIC Require Import
 From MetaCoq.PCUIC Require Import TemplateToPCUIC.
 From MetaCoq.PCUIC Require Import PCUICToTemplate.
 
-Definition relevant_binder (n:name) :=
-    {|
-    binder_name := n;
-    binder_relevance := Relevant
-    |}.
-Definition rAnon := relevant_binder nAnon.
-Definition rName n := relevant_binder (nNamed n).
-
-(* Definition hole := TemplateToPCUIC.trans [] hole. *)
-(* Definition hole := tEvar fresh_evar_id []. *)
-
-Definition extendName prefix (n:name) suffix :=
-    match n with 
-    | nAnon => nAnon
-    | nNamed id => nNamed (prefix^id^suffix)
-    end.
-Definition extendAname prefix n suffix:= 
-    map_binder_annot (fun n => extendName prefix n suffix) n.
+Require Import util.
 
 (*
 Important things to know for de Bruijn indices:
@@ -61,194 +47,52 @@ the inductive is virtually quantified behind the params and all params (includin
 
 other edge cases like the lambdas in the return of a match or
 the lambdas in fix point declarations are explained at the corresponding positions
+
+
+We create a special kind of induction lemma as we transform an induction lemma for the parametricity translation
+Therefore, some additional assumptions are introduced and all inductive hypotheses result from replacing the 
+parametricity translation of the type with the predicate in a translated argument
 *)
 
 
-
-(* generates a list (n-1), ..., 0 *)
-Fixpoint mkNums (n:nat) :=
-    match n with 
-    | O => []
-    | S m => [m] ++ mkNums m
-    end.
-(* generates a list tRel (n-1), ..., tRel 0 *)
-Fixpoint mkRels (n:nat) := map tRel (mkNums n).
-Fixpoint mkAstRels (n:nat) := map Ast.tRel (mkNums n).
 
 Require Import List.
 Import ListNotations.
 Import IfNotations.
 
-(* can be quoted as more powerful hole (coq does not need to fill it in)
-    only for testing/debugging purposes
- *)
-Variable (TODO: forall {T}, T).
-Definition AstPlaceholder := Ast.mkApp <% @TODO %> (Ast.hole).
-Definition placeholder := TemplateToPCUIC.trans [] AstPlaceholder.
 
-(*
-n = destination
-k = local binder count
-
-(* we simplify 
-does not change binder structure in contrast to normal subst
-(but it could without causing problems) *)
-Correction: works like subst now
-*)
-Fixpoint local_subst_ (s:list term) (n:nat) (k:nat) (t:term) := 
-  match t with
-  | tRel m =>
-      (* difference: correct distance is dest (n)+local (k) *)
-	  if k+n <=? m
-      then
-        (* difference: only lift over local binders *)
-        if nth_error s (m - k-n) is Some b then lift0 k b else tRel (m - #|s|)
-      else tRel m
-  | tEvar ev args => tEvar ev (map (local_subst_ s n k) args)
-  | tProd na A B => tProd na (local_subst_ s n k A) (local_subst_ s n (S k) B)
-  | tLambda na T M => tLambda na (local_subst_ s n k T) (local_subst_ s n (S k) M)
-  | tLetIn na b ty b' =>
-      tLetIn na (local_subst_ s n k b) (local_subst_ s n k ty) (local_subst_ s n (S k) b')
-  | tApp u0 v => tApp (local_subst_ s n k u0) (local_subst_ s n k v)
-  | tCase ind p c brs =>
-      let p' := map_predicate_k id (local_subst_ s n) k p in
-      let brs' := map_branches_k (local_subst_ s n) id k brs in
-      tCase ind p' (local_subst_ s n k c) brs'
-  | tProj p c => tProj p (local_subst_ s n k c)
-  | tFix mfix idx =>
-      let k' := #|mfix| + k in
-      let mfix' := map (map_def (local_subst_ s n k) (local_subst_ s n k')) mfix in
-      tFix mfix' idx
-  | tCoFix mfix idx =>
-      let k' := #|mfix| + k in
-      let mfix' := map (map_def (local_subst_ s n k) (local_subst_ s n k')) mfix in
-      tCoFix mfix' idx
-  | _ => t
-  end.
-
-Definition local_subst s n := local_subst_ s n 0.
-
-
-
-
-    (* TODO: there once was a function doing this already (was it mkApp in a previous version?) *)
-Definition mkEagerApp (a:term) (b:term) : term :=
-    match a with 
-    (* we completely ignore the type of the lambda as we might eliminate an error or at least do not introduce one *)
-    | tLambda na _ body =>
-        body {0:=b}
-    | _ => tApp a b 
-    end.
-
-Fixpoint mkEagerApps (t:term) (us:list term) : term :=
-    match us with
-    | [] => t
-    | u::ur => mkEagerApps (mkEagerApp t u) ur
-    end.
-
-    (* Locate "_ { _ := _ }". *)
-
-
-    (*
-
-    this function takes the type of an arguments, some extra information
-    and constructs a proof or type of the induction hypothesis
-    both are very similar and share all the structure
-    but they are independent and we only need one at a time
-    Therefore, the mode toggle switches between generating the 
-    induction hypothesis type for the cases (IHAssumption)
-    and the proofs in the match when the instantiation for the assumption is needed
-
-    technical detail:
-    we design the function with the assumptions in mind and will
-    in the de Bruijn indices accordingly
-    for the proof construction, we can use holes to compute the correct instantiations and types
-
-    Arguments:
-    *_ctx   - the contexts used for size and types in assumptions
-    ind_pos - the virtual position of the inductive type in the arguments of the constructor
-        the arguments are taken directly from the one_inductive_type (plus a lifting for P)
-        with the constructor type
-        Ind -> Params -> Non-uni -> Args -> tApp (tRel ...) ...
-        and the standard viewpoint ∀ Params P (manually liftet to accomodate P) non-uni, •
-        the instantiation should be #|param_ctx|+1+#|non_uni_param_ctx|+i
-        where i is the number of the current argument
-        to account for lifting in the other arguments
-    call_pos - the de Bruijn index of a function to generate the hypothesis/proof
-        for assumptions this is the position of P => predicate which is instantiated with the non_uni, indices, and instance
-            typically at #|non_uni_param_ctx|+i
-            behind the non_uni arguments (which are quantified in the case) and the other arguments
-        for proofs this is a proof of P => the fixpoint function f to be called with the (inferred) non_uni, indices and the (structurally smaller) instance
-            for a typical proof the fixpoint is behind
-                all ctor arguments (keep in mind that the applications to the case take place all at one level behind all arguments => no individual lifting),
-                the instance, indices, non_uniform parameters (arguments of the fixpoint)
-    t - the type of the ctor
-
-    return value:
-    Some u - if induction is possible in this argument, u is returned
-        hereby u stands for λ arg. ...
-        therefore, to use the assumption/proof, one has to instantiate the result
-        with a tRel pointing to the argument for which the assumption/proof is computed
-        this argument is then applied to P or the fixpoint (or more generally, to the call_pos as last argument after non_uni and indices)
-    None - if no induction is possible or the special kind of induction is not supported
-    
-    *)
-
-
-(*
-this function 
-when called with IHAssumption as mode:
-    extends a list of arguments into a list of arguments and their induction hypotheses
-        this list can be used to construct a case in and induction lemma
-when called with IHProof as mode:
-    generated proofs and calls for all arguments and to-be generated induction hypotheses
-        in order to give correct instantiations for case in the induction lemma
-
-The argument xs is an argument list => not reversed 
-    (but in correct order like you write it in the definition of the constructor)
-
-This function uses a virtual viewpoint: ∀ params P non_uni. • <- here
-    the viewpoint is mainly interesting for the assumption generation and is needed
-        for a correct instantiation of the arguments
-    to reach this viewpoint in the argument list, 
-        the context of arguments has to be liftet by 1 (for P) after non_uni parameters
-        and then reversed
-
-As we handle induction hypotheses and the proofs all in one place,
-this is the only place to adjust the difference induction hypotheses
-=> it is possible to toggle between case analysis and induction hypotheses in the function
-*)
-
-
-Definition hole := tEvar fresh_evar_id [].
 
 Section IH.
 
+(*
+Table to look up functorial instances for an inductive
+the entry contains the number of parameter groups a well as 
+the term of the lemma
+*)
 Variable (lookup_table : list (inductive * (nat * term))).
 
+(* 
+get an inductive hypothesis by replacing the occurence of the parametricity translation
+with the predicate
+*)
 Definition get_hypothesis param_ctx (ind_pos:nat) (pred_pos:nat) (t:term) :=
     let param_pos := pred_pos + 1 in
     local_subst [
         (* sacrificial lambda to remove param application for the predicate *)
-        (* holes are not allowed here but we eagerly perform beta reduction *)
-        (* TODO: beta_reduce does not work ? => first reduce then reduce further *)
-        (* it_mkLambda_or_LetIn (map_context (fun _ => hole) param_ctx) *)
+        (* holes are not allowed here but we could eagerly perform beta reduction *)
         it_mkLambda_or_LetIn (lift_context param_pos 0 param_ctx)
-        (* it_mkLambda_or_LetIn (lift_context (i+1) 0 param_ctx) *)
         (tRel pred_pos) (* predicate behind other cases and sacrificial lambdas *)
-        (* (tRel (i+#|param_ctx|)) *)
-        (* ind_term  *)
     ]
     ind_pos
-    (* (i+1+#|param_ctx|)  *)
     t
-    (* lift over other cases for correct param access *)
-    (* (lift0 (i+1)
-        (it_mkProd_or_LetIn ctor_arg_ctx body)
-    ) *)
     .
 
-
+(*
+generates the proofs
+for an inductive hypothesis, the fixpoint is used to translate the 
+parametricity translation instance into a proof of P
+for nested occurences the functorial lemma is used to lift this transformation
+*)
 Fixpoint create_proof_term_ (fuel:nat) (param_ctx non_uni_param_ctx indice_ctx:context) (ind_pos pred_pos call_pos:nat) (t:term) : option term :=
     match fuel with
     | 0 => None
@@ -315,48 +159,46 @@ Fixpoint create_proof_term_ (fuel:nat) (param_ctx non_uni_param_ctx indice_ctx:c
         there are no explicit lambdas to take the non_uni and indices
         instead, we apply them directly to the eta-reduced tRel for call_pos
         *)
-        (* s <- create_proof_term param_ctx non_uni_param_ctx indice_ctx ind_pos call_pos a;;
-        ret (mkEagerApp s hole) *)
-        (* alternative: ret (tApp s hole) *)
 
 
         (* ugly but the best alternative *)
+        (*
+        we need to distinguish the case of a "normal" instance or recursive instance 
+        from a nested recursive instance in an augmented argument
+        in the last case (the important case) the inner body of an application 
+            is of the form containerᵗ args
+        we want to apply the functorial lemma
+        Therefore, we have to group the parameters into parameter and parameterᵗ
+        and for each group add the translated parameterᵗ (which is parameterᵗ but replace typeᵗ with P)
+        as well as the functorial property proof which is generated recursively
+        *)
         let (body,args) := decompose_app t in
         let res := match body with
         | tInd ind inst =>
-            (* nested type *)
+            (* check if the functorial lemma is found, if not this might not be the correct argument (for instance argument instead of argumentᵗ) *)
             let lookup_opt := find (fun '(a,_) => eq_inductive ind a) lookup_table in
-            (* let (group_count,lookup) := _ : functorial_instance ind in
-            let group_count := lookup_inst.(param_groups) in
-            let lookup := lookup_inst.(func_lemma) in *)
             if lookup_opt is Some (_,(group_count, lookup)) then
-                (* ret placeholder *)
-                (* let lookup := TemplateToPCUIC.trans [] <% listᵗ_func %> in *)
                 let args' := (fix f groups xs {struct xs} :=
                     match groups, xs with
                     | S k, a::aᵗ::ys =>
+                    (* generate the functorial property *)
                         let fa_opt := create_proof_term param_ctx non_uni_param_ctx indice_ctx ind_pos pred_pos call_pos aᵗ in
                         let fa := 
                             if fa_opt is Some x then
                                 x
                             else
-                                (* (λ x y: y) : ∀ (x:X), F x -> F x *)
-                                (* tLambda rAnon hole (tLambda rAnon hole (tRel 0)) *)
                                 TemplateToPCUIC.trans [] <% I %>
                         in
+                        (* let Coq infer the basic instantiations *)
                         hole:: (* a  = type *)
                         hole:: (* aᵗ = translated type *)
                         hole:: (* get_hypothesis param_ctx ind_pos pred_pos aᵗ = replace Tᵗ with P in aᵗ *)
                         fa:: (* recursive proof *)
                         f k ys
                     | _, _ => xs
-                    (* | _, [x] => xs *)
-                    (* | _, [] => xs *)
-                    (* | _, y::yr => hole::f groups yr *)
                     end
                 ) group_count args in
-                ret (mkApps lookup args')
-                (* None *)
+                    ret (mkApps lookup args')
                 else 
                     None
         | _ => None
@@ -364,6 +206,7 @@ Fixpoint create_proof_term_ (fuel:nat) (param_ctx non_uni_param_ctx indice_ctx:c
         match res with
         | Some r => Some r
         | None =>
+            (* if not nested => relay application *)
             s <- create_proof_term param_ctx non_uni_param_ctx indice_ctx ind_pos pred_pos call_pos a;;
             ret (mkEagerApp s hole)
         end
@@ -417,6 +260,9 @@ Fixpoint create_proof_term_ (fuel:nat) (param_ctx non_uni_param_ctx indice_ctx:c
 Definition create_proof_term := create_proof_term_ 100.
 
 
+(*
+augment the arguments in the sense of creating proof terms for each argument
+*)
 Definition augment_arguments2 (param_ctx non_uni_param_ctx indice_ctx case_ctx:context) (xs:list context_decl) : list (term) := 
     fold_left_i
     (fun assumptions i arg =>
@@ -432,54 +278,30 @@ Definition augment_arguments2 (param_ctx non_uni_param_ctx indice_ctx case_ctx:c
             (* the proof the induction hypothesis (if one exists) or None otherwise
                 (the result is waiting for the argument to be supplied)
              *)
-            let arg_off := #|xs| - i - 1 in
-            let asm := create_proof_term 
-                param_ctx non_uni_param_ctx indice_ctx 
-                (ind_pos+arg_off+1) pred_pos fix_pos 
-                (lift0 (arg_off+1) arg.(decl_type)) in
-            (* let asm := None in *)
             (* select the ith argument from the constructor arguments
                     due to de Bruijn we need to write N-i-1 to get the ith of N arguments
                 we can not influence the order as it is given by the construction of a tCase
                     (but maybe it should stay in correct order to be less confusing in other areas)
             *)
+            let arg_off := #|xs| - i - 1 in
+            let asm := create_proof_term 
+                param_ctx non_uni_param_ctx indice_ctx 
+                (ind_pos+arg_off+1) pred_pos fix_pos 
+                (lift0 (arg_off+1) arg.(decl_type)) in
             let argument := tRel arg_off in
             assumptions++[
                 if asm is (Some asm_body) then
                     (mkEagerApps asm_body [argument])
-                    (* let AstPlaceholder := Ast.mkApp <% @TODO %> (Ast.hole) in
-                    let placeholder := TemplateToPCUIC.trans [] AstPlaceholder in
-                    placeholder *)
                 else
                     argument
                 ]
-        
-            (* let IHs := 
-                if asm is (Some asm_body) then
-                    (* suplly the body with the argument *)
-                    assumptions++[(mkEagerApps asm_body [argument])]
-                    (* [] *) (* this results in no induction hypotheses => case analysis *)
-                else 
-                    (* the argument does not allow for induction *)
-                    []
-            in
-
-            (* add argument instantiation (tRel) and proof the induction hypothesis (call to f and a bit of stuff around it)
-                as application arguments *)
-            assumptions++[Argument (vass rAnon argument)]++IHs *)
     )
     xs
     [].
 
-
-
 (* adds quantification of context around body *)
 Notation quantify:= (it_mkProd_or_LetIn)(only parsing).
 
-(* Definition ind_indices (mind:mutual_inductive_body) (ind:one_inductive_body) := 
-    let param_count := mind.(ind_npars) in
-    let (param_inds,_) := decompose_prod_assum [] ind.(ind_type) in
-    rev (skipn mind.(ind_npars) (rev (param_inds))). *)
 
 
 
@@ -653,6 +475,9 @@ Section Principle.
                     (* lift non-uni params over other cases and over the predicate => directly behind params *)
 
 
+                    (* correction: cases are now simply the arguments where typeᵗ is replaces with P *)
+
+
     Definition case_ctx :=
         (rev(
             mapi (fun i ctor => 
@@ -816,9 +641,9 @@ Definition createInductionPrinciple :=
                                     (* args is a context (reversed) but we want names in order *)
                                     map decl_name (rev arg_ctx) ;
                                 Ast.bbody := 
-                                if false then (* TODO: remove *)
+                                (* if false then 
                                         AstPlaceholder
-                                else
+                                else *)
 
 
                                         let aug_args := 
@@ -841,76 +666,11 @@ Definition createInductionPrinciple :=
                                             map (Ast.lift0 (#|arg_ctx|+1+#|indice_ctx|)) (mkAstRels #|non_uni_param_ctx|) ++ (* non-uni *)
                                             ( 
                                                 map PCUICToTemplate.trans aug_args
-                                                (* map (fun a =>
-                                                    PCUICToTemplate.trans match a with
-                                                    | Argument x | IH x => x.(decl_type)
-                                                    end
-                                                ) (aug_args) *)
-                                                (* or mkRels *)
-                                                (* mapi (fun i a =>
-
-
-
-                                                    (* match a.(decl_type) with 
-                                                    | tRel _ => AstPlaceholder
-                                                    | tInd _ _ => AstPlaceholder
-                                                    | tConst _ _ => AstPlaceholder
-                                                    | _ => Ast.tRel (#|arg_ctx| -i-1)
-                                                    end *)
-                                                    Ast.tRel (#|arg_ctx| -i-1)
-                                                        (* Ast.tRel (#|arg_ctx| -i-1) *)
-                                        (* AstPlaceholder *)
-                                                ) (rev arg_ctx) *)
                                             )
 
                                         )
 
 
-                                    (* (
-                                        (*
-                                        #|arg_ctx| = number of arguments of the ctor
-                                        #|predicate_ctx| = inst+indices+non-uni (arguments of f)
-                                        *)
-
-                                        (* if true then
-                                        AstPlaceholder
-                                        else  *)
-
-                                        (* the proofs generated during augmentation of the arguments *)
-                                        let aug_args := augmented_args IHProof arg_ctx in (* virtually behind ∀ Params P. • *)
-
-                                        (* build the proof of the shape 
-                                            H_ctor non_uni arg1 IH_1 arg2 IH_2 ...
-                                         *)
-                                        Ast.mkApps
-                                        (Ast.tRel (#|arg_ctx|+#|predicate_ctx|+1+
-                                        (* behind ctor args and fixpoint arguments (non_uni, indices, instance), and f *)
-                                        (* select the ith case from the assumptions
-                                             due to de Bruijn we need to write N-i-1 to get the ith of N arguments *)
-                                                    (#|case_ctx| -i-1))) (* H_ctor *)
-                                        (
-                                            (* the non-uni params are quantified in the fixpoint as arguments
-                                                fill them in by lifting the de Bruijn indices over the ctor arguments, the instance, and the indices
-                                             *)
-                                            map (Ast.lift0 (#|arg_ctx|+1+#|indice_ctx|)) (mkAstRels #|non_uni_param_ctx|) ++ (* non-uni *)
-                                            ( (* args and IH proofs *)
-                                            (* the correct argument indices and the corresponding proofs 
-                                                are calculated directly from the arguments during augmentation
-                                                this way, one does not have to keep a rolling iterator for the current argument
-                                                    and avoids to reconstruct all information about the induction hypothesis
-                                                    (and everything stays at one place)
-                                                
-                                                here, this procedure results in a simple unwrapping of the proofs
-                                             *)
-                                                map (fun a =>
-                                                    PCUICToTemplate.trans match a with
-                                                    | Argument x | IH x => x.(decl_type)
-                                                    end
-                                                ) (aug_args)
-                                            )
-                                        )
-
-                                    ) *)
                                 ;
                                 |}
                             ) ind.(ind_ctors)

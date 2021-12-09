@@ -1,0 +1,7 @@
+*.aux
+*.glob
+*.vo*
+Makefile.conf
+.lia.cache
+.vscode
+.Makefile*
