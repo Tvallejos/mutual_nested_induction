@@ -87,6 +87,7 @@ Definition get_hypothesis param_ctx (ind_pos:nat) (pred_pos:nat) (t:term) :=
     t
     .
 
+    Definition empty_env := PCUICProgram.build_global_env_map {| universes := ContextSet.empty ; declarations := [] |}.
 (*
 generates the proofs
 for an inductive hypothesis, the fixpoint is used to translate the 
@@ -187,7 +188,7 @@ Fixpoint create_proof_term_ (fuel:nat) (param_ctx non_uni_param_ctx indice_ctx:c
                             if fa_opt is Some x then
                                 x
                             else
-                                TemplateToPCUIC.trans [] <% I %>
+                                TemplateToPCUIC.trans empty_env <% I %>
                         in
                         (* let Coq infer the basic instantiations *)
                         hole:: (* a  = type *)
@@ -336,16 +337,14 @@ Section Principle.
         (mind:mutual_inductive_body)
         (ind:one_inductive_body).
 
-    Definition PropQ := TemplateToPCUIC.trans [] <% Prop %>.
+    Definition PropQ := TemplateToPCUIC.trans empty_env <% Prop %>.
 
     Definition ind_term := tInd inductive uinst.
 
     (* the kername of the inductive (module path and name) *)
     Definition kn := inductive.(inductive_mind).
     (* environment to lookup the inductive for translation from TemplateCoq to PCUIC *)
-    Definition lookup_env :global_env := [(
-        (kn,InductiveDecl mind)
-    )].
+    Definition lookup_env(* :global_env *) := add_global_decl empty_env (kn,InductiveDecl mind).
 
     (* remember: contexts are reversed
         decompose gives contexts

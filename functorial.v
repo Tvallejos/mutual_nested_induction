@@ -64,7 +64,7 @@ From MetaCoq.PCUIC Require Import
      PCUICUnivSubst PCUICTyping PCUICGeneration.
 
 From MetaCoq.PCUIC Require Import TemplateToPCUIC.
-From MetaCoq.PCUIC Require Import PCUICToTemplate.
+From MetaCoq.PCUIC Require Import PCUICToTemplate PCUICAst.
 
 Section Functorial.
 
@@ -86,9 +86,13 @@ Section Functorial.
     Definition all_param_ctx := skipn #|indice_ctx| ctx. (* parameters and non-uniform parameter *)
     Definition non_uni_param_ctx := firstn non_uniform_param_count all_param_ctx. (* non-uniform are behind => at the front *)
     Definition param_ctx := skipn #|non_uni_param_ctx| all_param_ctx. 
-
+    
+    Print PCUICProgram.global_env_map.
+    Print global_env.
+    Check {| universes := ContextSet.empty ; declarations := [] |} : global_env.
+    Definition empty_env := PCUICProgram.build_global_env_map {| universes := ContextSet.empty ; declarations := [] |}.
     Definition TrueQ :=
-        TemplateToPCUIC.trans [] <% True %>.
+        TemplateToPCUIC.trans empty_env <% True %>.
 
 
     (*

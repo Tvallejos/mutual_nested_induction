@@ -26,7 +26,7 @@ From MetaCoq.PCUIC Require Import
 From MetaCoq.PCUIC Require Import TemplateToPCUIC.
 From MetaCoq.PCUIC Require Import PCUICToTemplate.
 
-
+Definition empty_env := PCUICProgram.build_global_env_map {| universes := ContextSet.empty ; declarations := [] |}.
 (*
 extracts inductive, mutual_inductive_body, one_inductive_body and universe instance
 and applies a given program function
@@ -38,8 +38,8 @@ Definition fun_on_ind g (verbose:bool) {T} (rt:T) :=
     ib <- tmQuoteInductive k;;
     match Env.ind_bodies ib with 
     | [oind] => 
-        let mindPC := TemplateToPCUIC.trans_minductive_body [] ib in
-        let oindPC := TemplateToPCUIC.trans_one_ind_body [] oind in
+        let mindPC := TemplateToPCUIC.trans_minductive_body empty_env ib in
+        let oindPC := TemplateToPCUIC.trans_one_ind_body empty_env oind in
         mind <- tmEval lazy mindPC;;
         t <- tmEval lazy oindPC;;
         (if verbose then
@@ -109,7 +109,7 @@ Definition createFunctorial (verbose:bool) {T} rt:=
          let name := t.(ind_name)^"_func_inst" in
          let inst := 
             {| param_groups := groups; 
-                func_lemma := TemplateToPCUIC.trans [] lemmaQ |}
+                func_lemma := TemplateToPCUIC.trans empty_env lemmaQ |}
             :functorial_instance inductive in
         tmDefinition name inst;;
         tmExistingInstance (VarRef name);;
