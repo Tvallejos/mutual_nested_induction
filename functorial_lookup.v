@@ -42,6 +42,7 @@ Fixpoint collect_tInd_term  (t:term) : list inductive :=
     end.
 
     (* takes inductives from type and constructors *)
+    (* TODO: use collect_tInd to collect all inductives in a mutual inductive body*)
 Definition collect_tInd (ind:one_inductive_body) : list inductive :=
     collect_tInd_term ind.(ind_type) ++
     concat (map

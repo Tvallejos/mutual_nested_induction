@@ -35,13 +35,13 @@ Definition fun_on_ind g (verbose:bool) {T} (rt:T) :=
     t <- tmQuote (rt);;
     (fix f t := match t with
     Ast.tInd ({| inductive_mind := k |} as inductive) uinst => 
-    ib <- tmQuoteInductive k;;
-    match Env.ind_bodies ib with 
+    mind <- tmQuoteInductive k;;
+    match Env.ind_bodies mind with 
     | [oind] => 
-        let mindPC := TemplateToPCUIC.trans_minductive_body empty_env ib in
+        let mindPC := TemplateToPCUIC.trans_minductive_body empty_env mind in
         let oindPC := TemplateToPCUIC.trans_one_ind_body empty_env oind in
-        mind <- tmEval lazy mindPC;;
-        t <- tmEval lazy oindPC;;
+        mindPCred <- tmEval lazy mindPC;;
+        oindPCred <- tmEval lazy oindPC;;
         (if verbose then
          tmMsg "==============";;
          tmMsg "===Ind term===";;
@@ -50,11 +50,28 @@ Definition fun_on_ind g (verbose:bool) {T} (rt:T) :=
          tmMsg "==============";;
          tmMsg "===Ind type===";;
          tmMsg "==============";;
-         tmPrint t
+         tmPrint oindPCred
         else
          ret tt);;
-        (g inductive uinst mind t:TemplateMonad unit)
+        (g inductive uinst mindPC oindPCred:TemplateMonad unit)
     | [] => tmFail "no inductive body found"
+(*     | oind :: oinds => 
+        let mindPC := TemplateToPCUIC.trans_minductive_body empty_env mind in
+        let oindPC := TemplateToPCUIC.trans_one_ind_body empty_env oind in
+        mindPCred <- tmEval lazy mindPC;;
+        oindPCred <- tmEval lazy oindPC;;
+        (if verbose then
+         tmMsg "==============";;
+         tmMsg "===Ind term===";;
+         tmMsg "==============";;
+         tmPrint (tInd inductive uinst);;
+         tmMsg "==============";;
+         tmMsg "===Ind type===";;
+         tmMsg "==============";;
+         tmPrint oindPCred
+        else
+         ret tt);;
+        (g inductive uinst mindPC oindPCred:TemplateMonad unit) *)
     | _ => tmFail "too many inductive bodies (currently, mutual induction is not supported)"
     end
     | Ast.tApp t _ => f t (* resolve partial evar application *)

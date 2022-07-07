@@ -18,7 +18,7 @@ From MetaCoq.Translations Require Import param_original.
 
 Unset Strict Unquote Universe Mode. 
 Load test_types.
-
+Open Scope bs_scope.
 
 MetaCoq Run (TC <- Translate emptyTC "nat" ;;
                 tmDefinition "nat_TC" TC ).
