@@ -346,7 +346,7 @@ Section Principle.
     (* the kername of the inductive (module path and name) *)
     Definition kn := inductive.(inductive_mind).
     (* environment to lookup the inductive for translation from TemplateCoq to PCUIC *)
-    Definition lookup_env(* :global_env *) := add_global_decl empty_env (kn,InductiveDecl mind).
+    Definition lookup_env := add_global_decl empty_env (kn,InductiveDecl mind).
 
     (* remember: contexts are reversed
         decompose gives contexts
@@ -414,12 +414,12 @@ Section Principle.
     Definition conclusion_type predicateDist :=
         (* [instance] ++ indice_ctx ++ non_uni_param_ctx *)
         let concl_ctx := lift_context (S predicateDist) 0 full_predicate_ctx in
-        let concl_ty := mkApps (tRel (predicateDist + #|full_predicate_ctx|)) (* tRel to predicate *)
-            (* one lifting is for instanceᵗ *)
-            (map (lift0 (S #|indice_ctx|)) (mkRels #|non_uni_param_ctx|) ++ (* apply locally quant. non-uniform *)
-             map (lift0 1) (mkRels #|indice_ctx|)) (* apply locally quant. indices *)
+        let predicate := tRel (predicateDist + #|full_predicate_ctx|) in
+        (* one lifting is for instanceᵗ *)
+        let local_quant_non_uni := map (lift0 (S #|indice_ctx|)) (mkRels #|non_uni_param_ctx|) in
+        let local_quant_indices :=  map (lift0 1) (mkRels #|indice_ctx|) in 
                 (* ++ [tRel 0] *) (* not needed as the predicate has no instanceᵗ *)
-        in
+        let concl_ty := mkApps predicate (local_quant_non_uni ++ local_quant_indices) in
         quantify concl_ctx concl_ty.
 
 
@@ -472,7 +472,7 @@ Section Principle.
 
                     (* correction: cases are now simply the arguments where typeᵗ is replaces with P *)
 
-    Definition generate_hipothesis_type_of_constructor (i: nat) (ctor : constructor_body) : term :=
+    Definition generate_hypothesis_type_of_constructor (i: nat) (ctor : constructor_body) : term :=
         (* TODO: or reconstruct manually 
              from cstr_args, cstr_indices, and non_uniform parameters (lift over P before lifting everything over cases)
           *)
@@ -497,13 +497,12 @@ Section Principle.
           (lift0 (i+1) (it_mkProd_or_LetIn ctor_arg_ctx body)).
 
 
-    Definition get_hipothesis_context_of_constructor (i: nat) (ctor : constructor_body) : context_decl := 
+    Definition generate_hypothesis_of_constructor (i: nat) (ctor : constructor_body) : context_decl := 
         let name :=  (rName ("H_"^ctor.(cstr_name))) in
-        let H_type := generate_hipothesis_type_of_constructor i ctor in 
+        let H_type := generate_hypothesis_type_of_constructor i ctor in 
         vass name H_type. 
 
-    Definition case_ctx :=
-        (rev (mapi get_hipothesis_context_of_constructor ind.(ind_ctors))).
+    Definition case_ctx := rev (mapi generate_hypothesis_of_constructor ind.(ind_ctors)).
 
 
     (*
@@ -534,6 +533,35 @@ Section Principle.
         it_mkProd_or_LetIn lemma_argument_ctx
         (conclusion_type #|case_ctx| ).  (* lift over cases to get to predicate position *)
 
+(* iteration count for managing which case assumption to call *)
+Definition generateBranchesInductionPrinciple :=
+    let gen_ith_branch :=
+        fun i ctor =>
+            let arg_ctx := ctor.(cstr_args) in
+            {|  Ast.bcontext := (* args is a context (reversed) but we want names in order *)
+                    map decl_name (rev arg_ctx) ;
+                Ast.bbody := 
+                    let aug_args := 
+                        let arg_list := rev (lift_context 1 #|non_uni_param_ctx| arg_ctx) in (* ind is tRel (param+1) the +1 to lift over P *)
+                        augment_arguments2 param_ctx non_uni_param_ctx indice_ctx case_ctx arg_list 
+                    in (* virtually behind ∀ Params P. • *)
+                    let branch_i_fun :=
+                        Ast.tRel (#|arg_ctx|+#|full_predicate_ctx|+1+
+                        (* behind ctor args and fixpoint arguments (non_uni, indices, instance), and f *)
+                        (* select the ith case from the assumptions
+                            due to de Bruijn we need to write N-i-1 to get the ith of N arguments *)
+                                    (#|case_ctx| -i-1)) in (* H_ctor *)
+                    let lifted_non_uni_param :=
+                        (* lift non_uni over args, instance, indices *)
+                        map (Ast.lift0 (#|arg_ctx|+1+#|indice_ctx|)) (mkAstRels #|non_uni_param_ctx|) in
+                    let branch_i_body := lifted_non_uni_param ++ (map PCUICToTemplate.trans aug_args)
+                    in
+                    Ast.mkApps branch_i_fun branch_i_body
+            |} 
+    in
+    mapi gen_ith_branch ind.(ind_ctors).
+
+
 Definition matchInductiveInductionPrinciple :=
     let case_info := {| ci_ind := inductive;
                         ci_npar := #|all_param_ctx|;
@@ -555,54 +583,26 @@ Definition matchInductiveInductionPrinciple :=
                         Ast.preturn := 
                             (* P holds with non-uni, indices (no instance) *)
                             (* Ast.hole not possible for types without ctors *)
-                            Ast.mkApps 
-                            (* local instance, indices, fix point arguments (full pred),f  *)
-                                (Ast.tRel (1+#|indice_ctx|+#|full_predicate_ctx|+1+#|case_ctx|))
-                                (
+                            let ret_head_type :=
+                                (* local instance, indices, fix point arguments (full pred),f  *)
+                                Ast.tRel (1+#|indice_ctx|+#|full_predicate_ctx|+1+#|case_ctx|) in
+                            let ret_tail_type :=
                                     (* lift over instance, indices, instance (fix), indices (fix) *)
                                     map (Ast.lift0 (1+#|indice_ctx|+1+#|indice_ctx|)) (mkAstRels #|non_uni_param_ctx|) ++
                                     (* lift over instance *)
                                     map (Ast.lift0 1) (mkAstRels #|indice_ctx|) 
-                                    (* instance *)
-                                    (* [Ast.tRel 0] *)
-                                )  
+                                    (* instance is tRel 0 *)
+                            in
+                            Ast.mkApps ret_head_type ret_tail_type 
                         |} in 
-        let matched_term := (Ast.tRel 0) in (* inductive instance in fix *)
-        let branches := 
-            (* iteration count for managing which case assumption to call *)
-            mapi (fun i ctor =>
-                let arg_ctx := ctor.(cstr_args) in
-                {|  Ast.bcontext := (* args is a context (reversed) but we want names in order *)
-                        map decl_name (rev arg_ctx) ;
-                    Ast.bbody := 
-                        let aug_args := 
-                            let arg_list := rev (lift_context 1 #|non_uni_param_ctx| arg_ctx) in (* ind is tRel (param+1) the +1 to lift over P *)
-                            augment_arguments2 param_ctx non_uni_param_ctx indice_ctx case_ctx arg_list 
-                        in (* virtually behind ∀ Params P. • *)
-                        let branch_i_fun :=
-                            Ast.tRel (#|arg_ctx|+#|full_predicate_ctx|+1+
-                            (* behind ctor args and fixpoint arguments (non_uni, indices, instance), and f *)
-                            (* select the ith case from the assumptions
-                                due to de Bruijn we need to write N-i-1 to get the ith of N arguments *)
-                                        (#|case_ctx| -i-1)) in (* H_ctor *)
-                        let branch_i_body := 
-                            (* lift non_uni over args, instance, indices *)
-                            map (Ast.lift0 (#|arg_ctx|+1+#|indice_ctx|)) (mkAstRels #|non_uni_param_ctx|) ++ (* non-uni *)
-                            ( 
-                                map PCUICToTemplate.trans aug_args
-                            )
-                        in
-                        Ast.mkApps
-                        branch_i_fun
-                        branch_i_body
-                |}
-            ) ind.(ind_ctors)
+        let inductive_instance := Ast.tRel 0 in 
+        let branches := generateBranchesInductionPrinciple
     in 
     (* match
         TODO: write what we are doing
         the tCase in TemplateCoq is easier than the tCase in PCUIC (too many redundant annotations)
     *)
-    Ast.tCase case_info predicate matched_term branches.
+    Ast.tCase case_info predicate inductive_instance branches.
 
 
 Definition inductionPrincipleBody :=

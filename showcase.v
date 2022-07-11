@@ -53,6 +53,10 @@ Lemma list2_list2ᵗ A P: (forall a, P a) -> forall x, list2ᵗ A P x.
     induction x;constructor;auto.
 Defined.
 
+Lemma app_list (A : Type) (l1 l2 : list A) : map id (l1 ++ l2) = app l1 l2.
+Proof. induction l1 using listᵗ_nested_ind.
+
+listᵗ_nested_ind
 Lemma roseA_roseAᵗ A P: (forall a, P a) -> forall x, roseAᵗ A P x.
 Admitted.
 
@@ -106,28 +110,34 @@ Scheme even_ind' := Induction for even Sort Prop
 
 Fail MetaCoq Run (createIH true even).
 
+Inductive nz (n : nat) :=
+  | C : forall m, n = (S m) -> nz n.
 
-Lemma nz : forall n ,nonzero n -> n <> 0.
-    unfold not; intros n nz nis0; inversion nz; rewrite nis0 in H; discriminate H. 
+MetaCoq Run (TC <- Translate nat_TC "Coq.Init.Logic.eq" ;;
+                tmDefinition "eq_TC" TC ).
+
+MetaCoq Run (TC <- Translate eq_TC "nz" ;;
+                tmDefinition "nz_TC" TC ).
+MetaCoq Run (createIH true nzᵗ).
+Print nz_ind.
+Print nzᵗ_nested_ind.
+
+(* Metacoq Run Scheme nz_ind' := Induction for nz. *)
+(* forall (n : nat) (P : nz n -> Prop),
+       (forall (m : nat) (e : n = S m), P (C n m e)) ->
+       forall n0 : nz n, P n0
+
+forall (n : nat) (nᵗ : natᵗ n) (P : nz n -> Prop),
+       (forall (m : nat) (mᵗ : natᵗ m) (H : n = S m),
+        eqᵗ nat natᵗ n nᵗ (S m) (Sᵗ m mᵗ) H -> P (C n m H)) ->
+       forall H : nz n, nzᵗ n nᵗ H -> P H *)
+    
+Lemma nznonzero : forall n , nz n -> n <> 0.
+       unfold not; intros n nz nis0. induction nz. rewrite e in nis0; discriminate.
 Qed.
 
-Print list.
-Inductive roses : nat -> Prop :=
-| Noder : forall n (xs : list (even' n)), roses n
-with even' : nat -> Prop :=
-| even0' : forall n (r: roses n), even' 0
-| evenSn' : forall n (xs : list (roses n)), odd' n -> even' (S n)
-with odd' : nat -> Prop :=
-| oddSn' : forall n (xs : list (roses n)), even' n -> odd' (S n).
+Lemma nznonzero' : forall n , nz n -> n <> 0.
 
-MetaCoq Run (TC <- Translate list_TC "roses" ;;
-                tmDefinition "roses_TC" TC ).
-
-MetaCoq Run (TC <- Translate nat_TC "even" ;;
-                tmDefinition "even_TC" TC ).
-MetaCoq Run (createIH true evenᵗ).
-
-Print rosesᵗ.
-Print even'ᵗ.
-Print natᵗ.
-Check (odd'ᵗ 1 (Sᵗ 0 Oᵗ) (oddSn' 0 _ (even0' 0 _))) : Prop.
+       intros n nz. induction nz using nzᵗ_nested_ind.
+        - rewrite e in nis0; discriminate.
+Qed.
