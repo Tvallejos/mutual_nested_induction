@@ -15,10 +15,7 @@ From MetaCoq.Translations Require Import translation_utils.
 From MetaCoq.Translations Require Import param_original.
 
 Open Scope bs_scope.
-<<<<<<< HEAD
 
-=======
->>>>>>> mutual_ind_principle
 MetaCoq Run (TC <- Translate emptyTC "nat" ;;
                 tmDefinition "nat_TC" TC ).
 Print natᵗ.
