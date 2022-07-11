@@ -298,7 +298,7 @@ Definition augment_arguments2 (param_ctx non_uni_param_ctx indice_ctx case_ctx x
             let oarg := if asm is (Some asm_body) then
                         (mkEagerApps asm_body [argument])
                         else argument in
-            assumptions++[argument]
+            assumptions++[oarg]
         in 
     fold_left_i augment_one_arg xs [].
 
