@@ -70,30 +70,35 @@ the entry contains the number of parameter groups a well as
 the term of the lemma
 *)
 Variable (lookup_table : list (inductive * (nat * term))).
+Variable verbose : bool.
+
+
+Definition sacrificial_lambda (n k j : nat) (Γ : context) : term :=
+    let lifted_ctx := (lift_context n k Γ) in
+    it_mkLambda_or_LetIn lifted_ctx (tRel j).
+
 
 (* 
 get an inductive hypothesis by replacing the occurence of the parametricity translation
 with the predicate
 *)
+(* 3.1 E.Tassi *)
 Definition get_hypothesis param_ctx (ind_pos:nat) (pred_pos:nat) (t:term) :=
     let param_pos := pred_pos + 1 in
-    local_subst [
         (* sacrificial lambda to remove param application for the predicate *)
         (* holes are not allowed here but we could eagerly perform beta reduction *)
-        it_mkLambda_or_LetIn (lift_context param_pos 0 param_ctx)
-        (tRel pred_pos) (* predicate behind other cases and sacrificial lambdas *)
-    ]
-    ind_pos
-    t
-    .
+        (* predicate behind other cases and sacrificial lambdas *)
+    let sacr_lam := sacrificial_lambda param_pos 0 pred_pos param_ctx in
+    local_subst [sacr_lam] ind_pos t.
 
-    Definition empty_env := PCUICProgram.build_global_env_map {| universes := ContextSet.empty ; declarations := [] |}.
+Definition empty_env := PCUICProgram.build_global_env_map {| universes := ContextSet.empty ; declarations := [] |}.
 (*
 generates the proofs
 for an inductive hypothesis, the fixpoint is used to translate the 
 parametricity translation instance into a proof of P
 for nested occurences the functorial lemma is used to lift this transformation
 *)
+(* E.Tassi 5.4 *)
 Fixpoint create_proof_term_ (fuel:nat) (param_ctx non_uni_param_ctx indice_ctx:context) (ind_pos pred_pos call_pos:nat) (t:term) : option term :=
     match fuel with
     | 0 => None
@@ -240,19 +245,18 @@ Fixpoint create_proof_term_ (fuel:nat) (param_ctx non_uni_param_ctx indice_ctx:c
 
             for the proofs the quantification tProd is translated to a tLambda
          *)
+        let lift_by_1 := lift_context 1 0 in
         s <- create_proof_term
-            (lift_context 1 0 param_ctx) 
-            (lift_context 1 0 non_uni_param_ctx) 
-            (lift_context 1 0 indice_ctx) 
+            (lift_by_1 param_ctx) (lift_by_1 non_uni_param_ctx) (lift_by_1 indice_ctx) 
             (S ind_pos) (S pred_pos) (S call_pos) b;;
-        ret(tLambda rAnon (hole) (* hole is here not possible but we use eager beta reduction *)
-        (
+        let proof_term_body := 
             (* lift for sacrificial lambda *)
-            (tLambda na hole)
-            (mkEagerApps 
-            (lift 1 1 s) (* lift behind na over sacrificial lambda *)
-            [mkApps (tRel 1) [tRel 0]]) (* arg a *)
-        ))
+            tLambda na hole
+                (mkEagerApps 
+                (lift 1 1 s) (* lift behind na over sacrificial lambda *)
+                [mkApps (tRel 1) [tRel 0]]) in (* arg a *)
+        let proof_term_prod := tLambda rAnon (hole) proof_term_body in  (* hole is here not possible but we use eager beta reduction *)
+        ret proof_term_prod
 
     | _ => None
     end
@@ -264,21 +268,22 @@ Definition create_proof_term := create_proof_term_ 100.
 (*
 augment the arguments in the sense of creating proof terms for each argument
 *)
-Definition augment_arguments2 (param_ctx non_uni_param_ctx indice_ctx case_ctx:context) (xs:list context_decl) : list (term) := 
-    fold_left_i
-    (fun assumptions i arg =>
-        let ind_pos := #|param_ctx|+1+#|non_uni_param_ctx|+i in (* virtual position of the inductive type represented by tRel in the ctor arguments *) 
+Definition augment_arguments2 (param_ctx non_uni_param_ctx indice_ctx case_ctx xs : context) : list term := 
+    let augment_one_arg := 
+        fun assumptions i arg =>
+            let ind_pos := #|param_ctx|+1+#|non_uni_param_ctx|+i in 
+            (* virtual position of the inductive type represented by tRel in the ctor arguments *) 
             (* xs is some mapping of arg_ctx => number of arguments *)
             (* behind all arguments, the instance, indices, and non_uni params 
                 keep in mind that the match all arguments are quantified
                 and the case is called and instantiation
                 therefore, the index of the fixpoint does not depend on which argument is under consideration right now
-             *)
+            *)
             let fix_pos := #|xs|+1+#|indice_ctx|+#|non_uni_param_ctx| in
             let pred_pos := fix_pos + #|case_ctx| in
             (* the proof the induction hypothesis (if one exists) or None otherwise
                 (the result is waiting for the argument to be supplied)
-             *)
+            *)
             (* select the ith argument from the constructor arguments
                     due to de Bruijn we need to write N-i-1 to get the ith of N arguments
                 we can not influence the order as it is given by the construction of a tCase
@@ -290,15 +295,12 @@ Definition augment_arguments2 (param_ctx non_uni_param_ctx indice_ctx case_ctx:c
                 (ind_pos+arg_off+1) pred_pos fix_pos 
                 (lift0 (arg_off+1) arg.(decl_type)) in
             let argument := tRel arg_off in
-            assumptions++[
-                if asm is (Some asm_body) then
-                    (mkEagerApps asm_body [argument])
-                else
-                    argument
-                ]
-    )
-    xs
-    [].
+            let oarg := if asm is (Some asm_body) then
+                        (mkEagerApps asm_body [argument])
+                        else argument in
+            assumptions++[argument]
+        in 
+    fold_left_i augment_one_arg xs [].
 
 (* adds quantification of context around body *)
 Notation quantify:= (it_mkProd_or_LetIn)(only parsing).
@@ -344,7 +346,7 @@ Section Principle.
     (* the kername of the inductive (module path and name) *)
     Definition kn := inductive.(inductive_mind).
     (* environment to lookup the inductive for translation from TemplateCoq to PCUIC *)
-    Definition lookup_env(* :global_env *) := add_global_decl empty_env (kn,InductiveDecl mind).
+    Definition lookup_env := add_global_decl empty_env (kn,InductiveDecl mind).
 
     (* remember: contexts are reversed
         decompose gives contexts
@@ -382,15 +384,11 @@ Section Principle.
         in nested inductive induction hypotheses generated by third-party parametricity translations
     *)
     Definition full_predicate_ctx := 
-        [vass (rName "instᵗ") 
-            (mkApps ind_term 
-            (
-                map (lift0 (#|non_uni_param_ctx|+#|indice_ctx|)) (mkRels #|param_ctx|) ++ (* params *)
-                map (lift0 (#|indice_ctx|)) (mkRels #|non_uni_param_ctx|) ++ (* non_uni *)
-                map (lift0 0) (mkRels #|indice_ctx|) (* indices *)
-            ) (* params, non-uni, and indices*)
-            )] ++ 
-            predicate_ctx.
+        let params := map (lift0 (#|non_uni_param_ctx|+#|indice_ctx|)) (mkRels #|param_ctx|)  in
+        let non_uni := map (lift0 (#|indice_ctx|)) (mkRels #|non_uni_param_ctx|) in
+        let indices := map (lift0 0) (mkRels #|indice_ctx|) in
+        let inst_ty := (mkApps ind_term (params ++ non_uni ++ indices)) in
+        [vass (rName "instᵗ") inst_ty] ++ predicate_ctx.
 
     (* use the context to create the predicate type 
         ∀ non-uni indices, Ind params non-uni indices -> ℙ
@@ -414,17 +412,15 @@ Section Principle.
         lift0 k (conclusion_type 0)
      *)
     Definition conclusion_type predicateDist :=
-        (quantify
-           (lift_context (S predicateDist) 0 full_predicate_ctx) (* [instance] ++ indice_ctx ++ non_uni_param_ctx *)
-        (mkApps 
-            (tRel (predicateDist + #|full_predicate_ctx|)) (* tRel to predicate *)
-            (
-                (* one lifting is for instanceᵗ *)
-                map (lift0 (S #|indice_ctx|)) (mkRels #|non_uni_param_ctx|) ++ (* apply locally quant. non-uniform *)
-                map (lift0 1) (mkRels #|indice_ctx|) (* apply locally quant. indices *)
+        (* [instance] ++ indice_ctx ++ non_uni_param_ctx *)
+        let concl_ctx := lift_context (S predicateDist) 0 full_predicate_ctx in
+        let predicate := tRel (predicateDist + #|full_predicate_ctx|) in
+        (* one lifting is for instanceᵗ *)
+        let local_quant_non_uni := map (lift0 (S #|indice_ctx|)) (mkRels #|non_uni_param_ctx|) in
+        let local_quant_indices :=  map (lift0 1) (mkRels #|indice_ctx|) in 
                 (* ++ [tRel 0] *) (* not needed as the predicate has no instanceᵗ *)
-            )
-        )).
+        let concl_ty := mkApps predicate (local_quant_non_uni ++ local_quant_indices) in
+        quantify concl_ctx concl_ty.
 
 
     (*
@@ -476,43 +472,37 @@ Section Principle.
 
                     (* correction: cases are now simply the arguments where typeᵗ is replaces with P *)
 
+    Definition generate_hypothesis_type_of_constructor (i: nat) (ctor : constructor_body) : term :=
+        (* TODO: or reconstruct manually 
+             from cstr_args, cstr_indices, and non_uniform parameters (lift over P before lifting everything over cases)
+          *)
+          let (all_args,body) := decompose_prod_assum [] ctor.(cstr_type) in
+          let ctor_arg_ctx := rev (skipn #|param_ctx| (rev all_args)) in
+          let sacr_lam := 
+              (* sacrificial lambda to remove param application for the predicate *)
+              (* holes are not allowed here but we eagerly perform beta reduction *)
+              (* TODO: beta_reduce does not work ? => first reduce then reduce further *)
+              (* it_mkLambda_or_LetIn (map_context (fun _ => hole) param_ctx) *)
+              (* predicate behind other cases and sacrificial lambdas *)
+              sacrificial_lambda (i+1) 0 (i+#|param_ctx|) param_ctx in
 
-    Definition case_ctx :=
-        (rev(
-            mapi (fun i ctor => 
-                vass (rName ("H_"^ctor.(cstr_name))) 
-                    (
-                        (* TODO: or reconstruct manually 
-                            from cstr_args, cstr_indices, and non_uniform parameters (lift over P before lifting everything over cases)
-                        *)
-                        let (all_args,body) := decompose_prod_assum [] ctor.(cstr_type) in
-                        let ctor_arg_ctx := rev (skipn #|param_ctx| (rev all_args)) in
+          (* replace recursive instance (behind params)
+              (the non-uniform are accounted by quantifiers)
+              not at i+1+params (liftet over predicate, other cases)
+              with predicate behind cases (i)
+           *)
+(*            beta_reduce *)
+          local_subst [sacr_lam] (i+1+#|param_ctx|) 
+          (* lift over other cases for correct param access *)
+          (lift0 (i+1) (it_mkProd_or_LetIn ctor_arg_ctx body)).
 
-                        (* replace recursive instance (behind params)
-                            (the non-uniform are accounted by quantifiers)
-                            not at i+1+params (liftet over predicate, other cases)
-                            with predicate behind cases (i)
-                         *)
-                         (* beta_reduce( *)
-                        local_subst [
-                            (* sacrificial lambda to remove param application for the predicate *)
-                            (* holes are not allowed here but we eagerly perform beta reduction *)
-                            (* TODO: beta_reduce does not work ? => first reduce then reduce further *)
-                            (* it_mkLambda_or_LetIn (map_context (fun _ => hole) param_ctx) *)
-                            it_mkLambda_or_LetIn (lift_context (i+1) 0 param_ctx)
-                            (tRel (i+#|param_ctx|)) (* predicate behind other cases and sacrificial lambdas *)
-                            (* ind_term  *)
-                        ]
-                        (i+1+#|param_ctx|) 
-                        (* lift over other cases for correct param access *)
-                        (lift0 (i+1)
-                            (it_mkProd_or_LetIn ctor_arg_ctx body)
-                        )
-                        (* ) *)
-                    )
-                    (* ctor.(cstr_type) *)
-            ) ind.(ind_ctors)
-        )).
+
+    Definition generate_hypothesis_of_constructor (i: nat) (ctor : constructor_body) : context_decl := 
+        let name :=  (rName ("H_"^ctor.(cstr_name))) in
+        let H_type := generate_hypothesis_type_of_constructor i ctor in 
+        vass name H_type. 
+
+    Definition case_ctx := rev (mapi generate_hypothesis_of_constructor ind.(ind_ctors)).
 
 
     (*
@@ -542,6 +532,85 @@ Section Principle.
     Definition type := 
         it_mkProd_or_LetIn lemma_argument_ctx
         (conclusion_type #|case_ctx| ).  (* lift over cases to get to predicate position *)
+
+(* iteration count for managing which case assumption to call *)
+Definition generateBranchesInductionPrinciple :=
+    let gen_ith_branch :=
+        fun i ctor =>
+            let arg_ctx := ctor.(cstr_args) in
+            {|  Ast.bcontext := (* args is a context (reversed) but we want names in order *)
+                    map decl_name (rev arg_ctx) ;
+                Ast.bbody := 
+                    let aug_args := 
+                        let arg_list := rev (lift_context 1 #|non_uni_param_ctx| arg_ctx) in (* ind is tRel (param+1) the +1 to lift over P *)
+                        augment_arguments2 param_ctx non_uni_param_ctx indice_ctx case_ctx arg_list 
+                    in (* virtually behind ∀ Params P. • *)
+                    let branch_i_fun :=
+                        Ast.tRel (#|arg_ctx|+#|full_predicate_ctx|+1+
+                        (* behind ctor args and fixpoint arguments (non_uni, indices, instance), and f *)
+                        (* select the ith case from the assumptions
+                            due to de Bruijn we need to write N-i-1 to get the ith of N arguments *)
+                                    (#|case_ctx| -i-1)) in (* H_ctor *)
+                    let lifted_non_uni_param :=
+                        (* lift non_uni over args, instance, indices *)
+                        map (Ast.lift0 (#|arg_ctx|+1+#|indice_ctx|)) (mkAstRels #|non_uni_param_ctx|) in
+                    let branch_i_body := lifted_non_uni_param ++ (map PCUICToTemplate.trans aug_args)
+                    in
+                    Ast.mkApps branch_i_fun branch_i_body
+            |} 
+    in
+    mapi gen_ith_branch ind.(ind_ctors).
+
+
+Definition matchInductiveInductionPrinciple :=
+    let case_info := {| ci_ind := inductive;
+                        ci_npar := #|all_param_ctx|;
+                        ci_relevance := Relevant |} in
+    let predicate := {| Ast.puinst := uinst;
+                        Ast.pparams := 
+                            map (Ast.lift0 
+                                (* instance, indices, non-uni, f,
+                                cases, predicate *)
+                                (1+#|indice_ctx|+#|non_uni_param_ctx|+1+#|case_ctx|+1)) 
+                                (mkAstRels #|param_ctx|) (* provide param bindings *)
+                            ++ 
+                                (* instance and indices to reach non-uni in fix point definition *)
+                            map (Ast.lift0 (1+#|indice_ctx|)) (mkAstRels #|non_uni_param_ctx|); (* and non-uni param bindings *)
+                        Ast.pcontext :=
+                                (* names for indice bindings and the match instance (for return type context) *)
+                                map (fun _ => rAnon) indice_ctx ++ [rName "inst"];
+                                (* there are new binders for the indices and instance in the return type *)
+                        Ast.preturn := 
+                            (* P holds with non-uni, indices (no instance) *)
+                            (* Ast.hole not possible for types without ctors *)
+                            let ret_head_type :=
+                                (* local instance, indices, fix point arguments (full pred),f  *)
+                                Ast.tRel (1+#|indice_ctx|+#|full_predicate_ctx|+1+#|case_ctx|) in
+                            let ret_tail_type :=
+                                    (* lift over instance, indices, instance (fix), indices (fix) *)
+                                    map (Ast.lift0 (1+#|indice_ctx|+1+#|indice_ctx|)) (mkAstRels #|non_uni_param_ctx|) ++
+                                    (* lift over instance *)
+                                    map (Ast.lift0 1) (mkAstRels #|indice_ctx|) 
+                                    (* instance is tRel 0 *)
+                            in
+                            Ast.mkApps ret_head_type ret_tail_type 
+                        |} in 
+        let inductive_instance := Ast.tRel 0 in 
+        let branches := generateBranchesInductionPrinciple
+    in 
+    (* match
+        TODO: write what we are doing
+        the tCase in TemplateCoq is easier than the tCase in PCUIC (too many redundant annotations)
+    *)
+    Ast.tCase case_info predicate inductive_instance branches.
+
+
+Definition inductionPrincipleBody :=
+                it_mkLambda_or_LetIn 
+                (* lift over f (recursive fixpoint function), cases, predicate *)
+                (lift_context (1 + #|case_ctx| + 1) 0 full_predicate_ctx)
+                (TemplateToPCUIC.trans lookup_env matchInductiveInductionPrinciple).
+
 
 Definition createInductionPrinciple :=
     (*
@@ -579,105 +648,7 @@ Definition createInductionPrinciple :=
             tFix [ {|
             dname := rName "f";
             dtype := conclusion_type (#|case_ctx|); (* hole not possible for types without ctors *)
-            dbody := 
-                it_mkLambda_or_LetIn 
-                (* lift over f (recursive fixpoint function), cases, predicate *)
-                (lift_context (1 + #|case_ctx| + 1) 0 full_predicate_ctx)
-
-                (* match
-                    TODO: write what we are doing
-                    the tCase in TemplateCoq is easier than the tCase in PCUIC (too many redundant annotations)
-                *)
-                (* placeholder *)
-                (
-                (TemplateToPCUIC.trans lookup_env
-                    (Ast.tCase
-                        {|
-                        ci_ind := inductive;
-                        ci_npar := #|all_param_ctx|;
-                        ci_relevance := Relevant
-                        |}
-                        {|
-                        Ast.puinst := uinst;
-                        Ast.pparams := 
-                            map (Ast.lift0 
-                                (* instance, indices, non-uni, f,
-                                   cases, predicate
-                                 *)
-                                (1+#|indice_ctx|+#|non_uni_param_ctx|+1+#|case_ctx|+1)) 
-                                (mkAstRels #|param_ctx|) ++ (* provide param bindings *)
-                            (* instance and indices to reach non-uni in fix point definition *)
-                            map (Ast.lift0 (1+#|indice_ctx|)) (mkAstRels #|non_uni_param_ctx|) (* and non-uni param bindings *)
-                        ;
-                        Ast.pcontext :=
-                            (* names for indice bindings and the match instance (for return type context) *)
-                            map (fun _ => rAnon) indice_ctx ++
-                            [rName "inst"];
-                            (* there are new binders for the indices and instance in the return type *)
-                        Ast.preturn := 
-                        (* P holds with non-uni, indices (no instance) *)
-                        (* Ast.hole not possible for types without ctors *)
-                        Ast.mkApps 
-                        (* local instance, indices, fix point arguments (full pred),f  *)
-                        (Ast.tRel (1+#|indice_ctx|+#|full_predicate_ctx|+1+#|case_ctx|))
-                        (
-                            (* lift over instance, indices, instance (fix), indices (fix) *)
-                            map (Ast.lift0 (1+#|indice_ctx|+1+#|indice_ctx|)) (mkAstRels #|non_uni_param_ctx|) ++
-                            (* lift over instance *)
-                            map (Ast.lift0 1) (mkAstRels #|indice_ctx|) 
-                            (* instance *)
-                            (* [Ast.tRel 0] *)
-                        )
-
-                        |}
-                        (Ast.tRel 0) (* match over inductive instance in fix *)
-                        (
-                            (* iteration count for managing which case assumption to call *)
-                            mapi (fun i ctor =>
-                                let arg_ctx := ctor.(cstr_args) in
-                                {|
-                                Ast.bcontext := 
-                                    (* args is a context (reversed) but we want names in order *)
-                                    map decl_name (rev arg_ctx) ;
-                                Ast.bbody := 
-                                (* if false then 
-                                        AstPlaceholder
-                                else *)
-
-
-                                        let aug_args := 
-                                            let arg_list := rev (lift_context 1 #|non_uni_param_ctx| arg_ctx) in (* ind is tRel (param+1) the +1 to lift over P *)
-                                            augment_arguments2 param_ctx non_uni_param_ctx indice_ctx case_ctx arg_list 
-                                        in (* virtually behind ∀ Params P. • *)
-
-
-
-
-                                        Ast.mkApps
-                                        (Ast.tRel (#|arg_ctx|+#|full_predicate_ctx|+1+
-                                        (* behind ctor args and fixpoint arguments (non_uni, indices, instance), and f *)
-                                        (* select the ith case from the assumptions
-                                             due to de Bruijn we need to write N-i-1 to get the ith of N arguments *)
-                                                    (#|case_ctx| -i-1))) (* H_ctor *)
-                                        (
-
-                                            (* lift non_uni over args, instance, indices *)
-                                            map (Ast.lift0 (#|arg_ctx|+1+#|indice_ctx|)) (mkAstRels #|non_uni_param_ctx|) ++ (* non-uni *)
-                                            ( 
-                                                map PCUICToTemplate.trans aug_args
-                                            )
-
-                                        )
-
-
-                                ;
-                                |}
-                            ) ind.(ind_ctors)
-                        )
-                    )
-                ) 
-                )
-            ; 
+            dbody := inductionPrincipleBody  ; 
             rarg  := #|full_predicate_ctx| - 1 (* the last argument (the instance) is structural recursive *)
             |} ] 0
         )
