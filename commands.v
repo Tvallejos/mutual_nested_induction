@@ -26,6 +26,8 @@ From MetaCoq.PCUIC Require Import
 From MetaCoq.PCUIC Require Import TemplateToPCUIC.
 From MetaCoq.PCUIC Require Import PCUICToTemplate.
 
+Require Import util.
+
 Definition empty_env := PCUICProgram.build_global_env_map {| universes := ContextSet.empty ; declarations := [] |}.
 (*
 extracts inductive, mutual_inductive_body, one_inductive_body and universe instance
@@ -133,3 +135,74 @@ Definition createFunctorial (verbose:bool) {T} rt:=
         tmMsg ("Created "^name)
     ) verbose T rt.
 
+Axiom todo : forall t, t.
+
+Definition get_A_from_is_A (c : Env.global_env) : Ast.term :=
+    match c with
+    | Env.Build_global_env _ ( d :: decls)  => 
+        match d with
+        | (_,(Env.ConstantDecl _)) => Ast.tVar "error get_A_from_is_A first declaration not an inductive"
+        | (_,(Env.InductiveDecl {| Env.ind_bodies := bodies |})) => 
+            match bodies with
+            | [ {| Env.ind_indices := indices |} ] => 
+                match indices with
+                | [ idx ] => 
+                    match idx with
+                    | mkdecl _ _ A_type => A_type
+                    end
+                | _ => Ast.tVar "error get_A_from_is_A the body of the inductive declaration should have just one indice"
+                end
+            | _ => Ast.tVar "error get_A_from_is_A the body of the inductive declaration should have just one inductive body"
+            end
+        end
+    | Env.Build_global_env _ _  => Ast.tVar "error get_A_from_is_A"
+    end.
+
+Definition forall_A_is_A_a_type (A is_A : Ast.term) : Ast.term :=
+    Ast.tProd (mkBindAnn (nNamed "aname") Relevant) A (Ast.tApp is_A [Ast.tRel 0]).
+
+
+Definition generate_body_forall_A_is_A_a (A is_A : Ast.term) : Ast.term :=
+    let (inductive,uinst) := 
+        match A with
+        | Ast.tInd inductive uinst => (inductive,uinst)
+        | _ => ({| inductive_mind := (MPfile [""],"lemma body error A was not an inductive") ; inductive_ind := 0|}, [])
+        end 
+(*         : (Kernames.inductive * Instance.t) *)
+    in
+    let case_info := {| ci_ind := inductive ; 
+                        ci_npar := 1 ; (* TODO update for nested types *)
+                        ci_relevance := Relevant |} in
+    let predicate := {| Ast.puinst := uinst ; 
+                        Ast.pparams := []; (* not sure about this one *) 
+                        Ast.pcontext := [rName "inst"];
+                        Ast.preturn := Ast.mkApps is_A [Ast.tRel 0]
+                        |} in
+    let inductive_instance := Ast.tRel 0 in 
+    let branches := todo _ in
+    Ast.tLambda {| binder_name := BasicAst.nNamed "inst" ; binder_relevance := Relevant |} A
+    (Ast.tCase case_info predicate inductive_instance branches).
+
+    (* Definition forall_A_is_A_a (A : Ast.term) (is_A : Ast.term) : Ast.term :=
+ *)
+(* forall (A: Type) (P : A -> Set), forall a : A, P a *)    
+Definition create_T_is_T {T : Type} (x : T) : TemplateMonad unit :=
+    p <-  tmQuoteRec x ;;
+    let (genv,is_A) :=  (p : Env.program) in
+    let A := get_A_from_is_A genv in
+    let conclusion_type := forall_A_is_A_a_type A is_A in
+    let body := generate_body_forall_A_is_A_a A is_A in
+    ret tt.
+(* tFix [ {|
+            dname := rName "f";
+            dtype := conclusion_type ; 
+            dbody := body  ; 
+            rarg  := 1 (* for non container types you just need 1 arg*)   
+                     (* for container types you have A : type and is_A : A -> Prop in ctx *)
+                     (* for the moment just considering "normal" types *)
+            
+            |} ] 0 *)
+(*  let Σ := TemplateToPCUIC.trans_global (genv,Monomorphic_ctx) : PCUICProgram.global_env_ext_map in 
+    let sig := PCUICProgram.global_env_ext_map_global_env_map Σ in *)
+
+  
