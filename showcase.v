@@ -19,8 +19,34 @@ Open Scope bs_scope.
 MetaCoq Run (TC <- Translate emptyTC "nat" ;;
                 tmDefinition "nat_TC" TC ).
 Print natᵗ.
+MetaCoq Quote Recursively Definition nat_translation := natᵗ.
+MetaCoq Run (createIH false nat).
+Print nat_nested_ind.
+Lemma addsn n : n + 0 = n.
+Proof. apply nat_nested_ind.
+- simpl. Abort.
+
 MetaCoq Run (createIH false natᵗ).
 Print natᵗ_nested_ind.
+
+(* fun (P : nat -> Prop) (H_Oᵗ : P 0) (H_Sᵗ : forall H : nat, P H -> P (S H)) =>
+fix f (H : nat) (instᵗ : natᵗ H) {struct instᵗ} : P H :=
+  match instᵗ in (natᵗ inst) return (P inst) with
+  | Oᵗ => H_Oᵗ
+  | Sᵗ x x0 => H_Sᵗ x (f x x0)
+  end
+	 : forall P : nat -> Prop,
+       P 0 ->
+       (forall H : nat, P H -> P (S H)) -> forall H : nat, natᵗ H -> P H
+
+fun (P : nat -> Prop) (H0 : P 0(IH : forall n : nat, P n -> P (S n))
+  (n : nat) => natᵗ_nested_ind P H0 IH n (nat_natᵗ_fun n)
+	 : forall P : nat -> Prop,
+       P 0 -> (forall n : nat, P n -> P (S n)) -> forall n : nat, P n
+ *)
+
+MetaCoq Quote Recursively Definition natind := natᵗ_nested_ind.
+
 MetaCoq Run (TC <- Translate nat_TC "list" ;;
                 tmDefinition "list_TC" TC ).
 Print listᵗ.
@@ -57,6 +83,8 @@ Definition nat_natᵗ_fun : forall n, natᵗ n :=
         | S n' => Sᵗ n' (f n')
         end.
 
+MetaCoq Quote Recursively Definition nat_ind_tc := nat_natᵗ_fun.
+
 Lemma nat_ind_tac :
 forall P : nat -> Prop,
 P 0 -> (forall n : nat, P n -> P (S n)) -> forall n : nat, P n.
@@ -73,6 +101,8 @@ Definition nat_ind_fun :
         forall n : nat, P n :=
     fun P H0 IH n => natᵗ_nested_ind P H0 IH n (nat_natᵗ_fun n).
 
+MetaCoq Quote Recursively Definition nat_normal_ind := nat_ind_fun.
+
 Lemma list_listᵗ_tac A is_A: (forall a, is_A a) -> forall x, listᵗ A is_A x.
 Proof. intro HA. fix f 1. destruct x.
     - constructor.
@@ -86,7 +116,22 @@ Definition list_listᵗ_fun : forall A is_A, (forall a, is_A a) -> forall x, lis
     | cons h t => consᵗ A is_A h (AH h) t (f A is_A AH t)
     end.
 
-(* you cannot derive the 'normal' induction principles for container types 
+Definition rtree_rtreeᵗ_tac : forall A (is_A : A -> Prop), (forall a, is_A a) -> forall t, roseᵗ t.
+Proof. intros A is_A funtorial. fix f 1. destruct t.
+    - constructor.
+    - constructor. apply (list_listᵗ_fun rose roseᵗ f). 
+    Abort.
+
+
+Definition rtree_rtreeᵗ_tac2 : forall A (is_A : A -> Prop), (forall a, is_A a) -> forall t, roseᵗ t.
+Proof. intros A is_A funtorial. fix f 1. destruct t.
+    - constructor.
+    - constructor. generalize xs. fix F 1. intro l. destruct l.
+        + constructor.
+        + constructor. apply f. apply F.
+Qed.
+(* you cannot derive the 'normal'
+ induction principles for container types 
     using the parametricity translation of that type. Because you need to know the
     structure of the type that is parameterized (A) to get the proposition is_A
 *)
