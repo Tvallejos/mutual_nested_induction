@@ -25,16 +25,17 @@ MetaCoq Run (createIH false natᵗ).
 Print natᵗ_nested_ind.
 
 Lemma nat_natᵗ_tac : forall n, natᵗ n.   
-Proof. fix f 1. intros n. destruct n.
-    - constructor. 
-    - constructor. apply f.
+Proof. fix f 1. intros n. destruct n as [| n'].
+    - apply Oᵗ. 
+    - apply Sᵗ. apply (f _). 
 Qed.
 
 Definition nat_natᵗ_fun : forall n, natᵗ n :=
     fix f n : natᵗ n :=
         match n with
         | O => Oᵗ
-        | S n' => Sᵗ n' (f n')
+        | S n' => Sᵗ n' (f _) 
+(*         | S n' => Sᵗ n' (f n') *)
         end.
 
 MetaCoq Quote Recursively Definition nat_is_nat := nat_natᵗ_fun.
@@ -54,6 +55,7 @@ Definition nat_ind_fun :
             (forall n : nat, P n -> P (S n)) ->
         forall n : nat, P n :=
     fun P H0 IH n => natᵗ_nested_ind P H0 IH n (nat_natᵗ_fun n).
+
 
 (* =============== *)
 
@@ -77,17 +79,38 @@ Print listᵗ_nested_ind.
 
 Lemma list_listᵗ_tac A is_A: (forall a, is_A a) -> forall x, listᵗ A is_A x.
 Proof. intro HA. fix f 1. destruct x.
-    - constructor.
-    - constructor. apply HA. apply f.
+    - apply nilᵗ.
+    - apply consᵗ. apply HA. apply f.
 Qed.
     
-Definition list_listᵗ_fun : forall A is_A, (forall a, is_A a) -> forall x, listᵗ A is_A x:=
+Definition list_listᵗ_fun : forall A is_A, (forall a, is_A a) -> forall l, listᵗ A is_A l:=
     fun A is_A AH =>
     fix f l : listᵗ A is_A l :=
     match l with
     | nil => nilᵗ A is_A
     | cons h t => consᵗ A is_A h (AH h) t (f t)
+(*     | cons h t => consᵗ A is_A h (AH h) t (f t) *)
     end.
+
+(* Inductive Test (A : Type) (n : nat) (C : Type) : nat -> Type :=
+    | ctor : forall m (t : Test A n C m), Test A n C m.
+
+MetaCoq Run (TC <- Translate nat_TC "Test" ;;
+                tmDefinition "Test_TC" TC ).
+Print Testᵗ.
+
+Definition test_testᵗ_fun : 
+    forall A is_A, (forall a, is_A a) -> 
+    forall n C is_C, (forall c, is_C c) ->
+    forall m, 
+    forall t, Testᵗ A is_A n (nat_natᵗ_fun n) C is_C m (nat_natᵗ_fun m) t :=
+    fun A is_A AH n C is_C CH m =>
+    fix f t : Testᵗ A is_A n C is_C m t :=
+        match t with
+        | ctor m t' => ctorᵗ A is_A n (nat_natᵗ_fun n) C is_C m (f t')
+(*         | S n' => Sᵗ n' (f n') *)
+        end. *)
+
 
 (* =========================== *)
 
@@ -127,7 +150,8 @@ Definition rtree_rtreeᵗ_fun : forall t, roseᵗ t:=
     fix f t : roseᵗ t := 
     match t with
     | Leaf => Leafᵗ 
-    | Node xs => Nodeᵗ xs (list_listᵗ_fun rose roseᵗ f xs)
+    | Node xs => Nodeᵗ xs (list_listᵗ_fun _ _ f _)
+(*     (list_listᵗ_fun rose roseᵗ f xs) *)
     end.
 
 Definition rtree_rtreeᵗ_fun2 : forall t, roseᵗ t:=

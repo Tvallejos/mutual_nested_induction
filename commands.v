@@ -80,6 +80,8 @@ Definition fun_on_ind g (verbose:bool) {T} (rt:T) :=
     | _ => tmFail "Not an inductive type, maybe try @ind for implicit arguments"
     end) t.
 
+
+Print Instance.t.
     (*
     generates an induction principle
     *)
@@ -162,46 +164,136 @@ Definition forall_A_is_A_a_type (A is_A : Ast.term) : Ast.term :=
     Ast.tProd (mkBindAnn (nNamed "aname") Relevant) A (Ast.tApp is_A [Ast.tRel 0]).
 
 
-Definition generate_body_forall_A_is_A_a (A is_A : Ast.term) : Ast.term :=
-    let (inductive,uinst) := 
-        match A with
-        | Ast.tInd inductive uinst => (inductive,uinst)
-        | _ => ({| inductive_mind := (MPfile [""],"lemma body error A was not an inductive") ; inductive_ind := 0|}, [])
-        end 
-(*         : (Kernames.inductive * Instance.t) *)
-    in
-    let case_info := {| ci_ind := inductive ; 
-                        ci_npar := 1 ; (* TODO update for nested types *)
+(* Definition get_decls (ctx : Env.context) : list BasicAst.aname :=
+    fold_left _ _ (fun acc (decl:BasicAst.context_decl term)=> decl.(decl_name) :: acc) [] ctx. *)
+    
+Fixpoint get_decls (ctx : Env.context ) : list BasicAst.aname :=
+    match ctx with
+    | nil => nil
+    | d :: decls => d.(decl_name) :: get_decls decls
+    end.
+
+(* TODO HOW TO MERGE UNIVERSES *)
+Definition generate_bbody_forall_A_is_A_a uinstA is_Ak (bctx : list BasicAst.aname) (i : nat): Ast.term :=
+    let is_K := Ast.tConstruct {| inductive_mind := is_Ak ; inductive_ind := uinstA |} i [] in
+    (* FIXME put the right universes *)
+    let pcontext_size := 1 in
+    match bctx with
+    | nil => is_K
+    | _ => let R := (flat_map (fun n=> (rev [Ast.tRel n ; Ast.tApp (Ast.tRel (#|bctx| + pcontext_size)) [Ast.tRel n]])) (seq 0 #|bctx|)) in
+        Ast.tApp is_K (rev R)
+    (* to reach f we need to know the size of pcontext later will be replaced*)
+    end. 
+
+Definition get_ctors (mind : Env.mutual_inductive_body) (uinst : nat) : list Env.constructor_body :=
+    match nth_error mind.(Env.ind_bodies) uinst with
+    | Some ib => ib.(Env.ind_ctors)
+    | None => [] (* how to handle better this case? *)
+    end.
+
+Definition generate_branches_forall_A_is_A_a (uinstA : nat)(Ak is_Ak : kername) (A_mind is_A_mind : Env.mutual_inductive_body) : list (Ast.branch Ast.term) :=
+    let get_one_branch := fun (i:nat) ctorA =>
+        let argsA := match ctorA with Env.Build_constructor_body _ argsA _ _ _ => argsA end in
+        let bctx := get_decls argsA in
+        let bbdy := generate_bbody_forall_A_is_A_a uinstA is_Ak bctx i in
+        {| Ast.bcontext := bctx ; Ast.bbody := bbdy |} 
+        in
+    mapi get_one_branch (get_ctors A_mind uinstA).
+
+Definition get_inductive_uinst (t : Ast.term) := 
+    match t with
+    | Ast.tInd i u => (i,u)
+    | _ => ({| inductive_mind := (MPfile [""],"error in generate the body of fundamental lemma") ; inductive_ind := 0 |} , [] )
+    end.
+
+Definition generate_body_forall_A_is_A_a Ak is_Ak A is_A A_mind is_A_mind :=
+    let (inductiveA,uinstA) := get_inductive_uinst A in 
+    let (inductiveisA,uinstisA) := get_inductive_uinst is_A in 
+    let case_info := {| ci_ind := inductiveA ; 
+                        ci_npar := 0 ; 
+                            (* what does npar stands for? *)
+                            (* TODO update for nested types *)
                         ci_relevance := Relevant |} in
-    let predicate := {| Ast.puinst := uinst ; 
-                        Ast.pparams := []; (* not sure about this one *) 
+    let predicate := {| Ast.puinst := uinstA ; 
+                        Ast.pparams := []; (* not handling params for the moment *) 
                         Ast.pcontext := [rName "inst"];
                         Ast.preturn := Ast.mkApps is_A [Ast.tRel 0]
                         |} in
     let inductive_instance := Ast.tRel 0 in 
-    let branches := todo _ in
-    Ast.tLambda {| binder_name := BasicAst.nNamed "inst" ; binder_relevance := Relevant |} A
+    let branches := generate_branches_forall_A_is_A_a inductiveA.(inductive_ind) Ak is_Ak A_mind is_A_mind in
+    Ast.tLambda (rName "inst") A
     (Ast.tCase case_info predicate inductive_instance branches).
 
     (* Definition forall_A_is_A_a (A : Ast.term) (is_A : Ast.term) : Ast.term :=
  *)
 (* forall (A: Type) (P : A -> Set), forall a : A, P a *)    
+Definition get_mind (A : Ast.term) : kername :=
+    match A with
+    | Ast.tInd ({| inductive_mind := k |} ) _ => k
+    | _ => (MPfile [""],"lemma body error A was not an inductive")
+    end.
+
+Print mfixpoint .
+
 Definition create_T_is_T {T : Type} (x : T) : TemplateMonad unit :=
     p <-  tmQuoteRec x ;;
     let (genv,is_A) :=  (p : Env.program) in
+    let is_Ak := get_mind is_A in
+        is_A_mind <- tmQuoteInductive is_Ak;;
     let A := get_A_from_is_A genv in
+    let Ak := get_mind A in
+        A_mind <- tmQuoteInductive Ak;;
     let conclusion_type := forall_A_is_A_a_type A is_A in
-    let body := generate_body_forall_A_is_A_a A is_A in
-    ret tt.
-(* tFix [ {|
+    let body := generate_body_forall_A_is_A_a Ak is_Ak A is_A A_mind is_A_mind in
+        tmMsg "===============";;
+        tmMsg "=== Type is_A ===";;
+        tmMsg "===============";;
+        tmEval lazy is_A >>=
+        tmPrint ;;
+        tmMsg "========== end is_A ===============";;
+        tmMsg "===============";;
+        tmMsg "===  Type A  ===";;
+        tmMsg "===============";;
+        tmEval lazy A >>=
+        tmPrint ;; 
+        tmMsg "========== end A ===============";;
+        tmMsg "===============";;
+        tmMsg "===  conclusion Type : forall a : is_A a  ===";;
+        tmMsg "===============";;
+        tmEval lazy conclusion_type >>=
+        tmPrint ;; 
+        tmMsg "========== end conclusion type ===============";;
+        tmMsg "===============";;
+        tmMsg "===  Body  ===";;
+        tmMsg "===============";;
+        tmEval lazy body >>=
+        tmPrint ;;
+        tmMsg "========== end body ===============";;
+    let mfixpoint := 
+        [{|
             dname := rName "f";
             dtype := conclusion_type ; 
             dbody := body  ; 
-            rarg  := 1 (* for non container types you just need 1 arg*)   
+            rarg  := 0 (* for non container types you just need 1 arg*)   
                      (* for container types you have A : type and is_A : A -> Prop in ctx *)
                      (* for the moment just considering "normal" types *)
             
-            |} ] 0 *)
+         |}] in 
+    let fixp :=  
+(*         (it_mkLambda_or_LetIn
+        [] (* the context depends on the parameters*) *)
+        (Ast.tFix mfixpoint 0)
+(*         )  *)
+        in
+        tmMsg "===============";;
+        tmMsg "===  fixpoint ===";;
+        tmMsg "===============";;
+        tmEval lazy fixp >>=
+        tmPrint ;;
+        tmMsg "========== end fixpoint ===============";;
+         tmMkDefinition "fl_nat" fixp;;
+        
+    ret tt.
 (*  let Σ := TemplateToPCUIC.trans_global (genv,Monomorphic_ctx) : PCUICProgram.global_env_ext_map in 
     let sig := PCUICProgram.global_env_ext_map_global_env_map Σ in *)
 
