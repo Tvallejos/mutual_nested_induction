@@ -81,7 +81,6 @@ Definition fun_on_ind g (verbose:bool) {T} (rt:T) :=
     end) t.
 
 
-Print Instance.t.
     (*
     generates an induction principle
     *)
@@ -174,8 +173,8 @@ Fixpoint get_decls (ctx : Env.context ) : list BasicAst.aname :=
     end.
 
 (* TODO HOW TO MERGE UNIVERSES *)
-Definition generate_bbody_forall_A_is_A_a uinstA is_Ak (bctx : list BasicAst.aname) (i : nat): Ast.term :=
-    let is_K := Ast.tConstruct {| inductive_mind := is_Ak ; inductive_ind := uinstA |} i [] in
+Definition generate_bbody_forall_A_is_A_a uinstA is_Ak (bctx : list BasicAst.aname) (i : nat) (uinstisA : Instance.t): Ast.term :=
+    let is_K := Ast.tConstruct {| inductive_mind := is_Ak ; inductive_ind := uinstA |} i uinstisA in
     (* FIXME put the right universes *)
     let pcontext_size := 1 in
     match bctx with
@@ -191,11 +190,11 @@ Definition get_ctors (mind : Env.mutual_inductive_body) (uinst : nat) : list Env
     | None => [] (* how to handle better this case? *)
     end.
 
-Definition generate_branches_forall_A_is_A_a (uinstA : nat)(Ak is_Ak : kername) (A_mind is_A_mind : Env.mutual_inductive_body) : list (Ast.branch Ast.term) :=
+Definition generate_branches_forall_A_is_A_a (uinstA : nat) (uinstisA : Instance.t) (Ak is_Ak : kername) (A_mind is_A_mind : Env.mutual_inductive_body) : list (Ast.branch Ast.term) :=
     let get_one_branch := fun (i:nat) ctorA =>
         let argsA := match ctorA with Env.Build_constructor_body _ argsA _ _ _ => argsA end in
         let bctx := get_decls argsA in
-        let bbdy := generate_bbody_forall_A_is_A_a uinstA is_Ak bctx i in
+        let bbdy := generate_bbody_forall_A_is_A_a uinstA is_Ak bctx i uinstisA in
         {| Ast.bcontext := bctx ; Ast.bbody := bbdy |} 
         in
     mapi get_one_branch (get_ctors A_mind uinstA).
@@ -211,7 +210,6 @@ Definition generate_body_forall_A_is_A_a Ak is_Ak A is_A A_mind is_A_mind :=
     let (inductiveisA,uinstisA) := get_inductive_uinst is_A in 
     let case_info := {| ci_ind := inductiveA ; 
                         ci_npar := 0 ; 
-                            (* what does npar stands for? *)
                             (* TODO update for nested types *)
                         ci_relevance := Relevant |} in
     let predicate := {| Ast.puinst := uinstA ; 
@@ -220,28 +218,26 @@ Definition generate_body_forall_A_is_A_a Ak is_Ak A is_A A_mind is_A_mind :=
                         Ast.preturn := Ast.mkApps is_A [Ast.tRel 0]
                         |} in
     let inductive_instance := Ast.tRel 0 in 
-    let branches := generate_branches_forall_A_is_A_a inductiveA.(inductive_ind) Ak is_Ak A_mind is_A_mind in
+    let branches := generate_branches_forall_A_is_A_a inductiveA.(inductive_ind) uinstisA Ak is_Ak A_mind is_A_mind in
     Ast.tLambda (rName "inst") A
     (Ast.tCase case_info predicate inductive_instance branches).
 
     (* Definition forall_A_is_A_a (A : Ast.term) (is_A : Ast.term) : Ast.term :=
  *)
 (* forall (A: Type) (P : A -> Set), forall a : A, P a *)    
-Definition get_mind (A : Ast.term) : kername :=
+Definition get_kername (A : Ast.term) : kername :=
     match A with
     | Ast.tInd ({| inductive_mind := k |} ) _ => k
     | _ => (MPfile [""],"lemma body error A was not an inductive")
     end.
 
-Print mfixpoint .
-
 Definition create_T_is_T {T : Type} (x : T) : TemplateMonad unit :=
     p <-  tmQuoteRec x ;;
     let (genv,is_A) :=  (p : Env.program) in
-    let is_Ak := get_mind is_A in
+    let is_Ak := get_kername is_A in
         is_A_mind <- tmQuoteInductive is_Ak;;
     let A := get_A_from_is_A genv in
-    let Ak := get_mind A in
+    let Ak := get_kername A in
         A_mind <- tmQuoteInductive Ak;;
     let conclusion_type := forall_A_is_A_a_type A is_A in
     let body := generate_body_forall_A_is_A_a Ak is_Ak A is_A A_mind is_A_mind in
@@ -291,7 +287,7 @@ Definition create_T_is_T {T : Type} (x : T) : TemplateMonad unit :=
         tmEval lazy fixp >>=
         tmPrint ;;
         tmMsg "========== end fixpoint ===============";;
-         tmMkDefinition "fl_nat" fixp;;
+        tmMkDefinition (Ak.2^"_fl") fixp;;
         
     ret tt.
 (*  let Σ := TemplateToPCUIC.trans_global (genv,Monomorphic_ctx) : PCUICProgram.global_env_ext_map in 
