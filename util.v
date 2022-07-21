@@ -42,8 +42,8 @@ Fixpoint mkNums (n:nat) :=
     end.
 (* generates a list tRel (n-1), ..., tRel 0 *)
 (* useful to apply a bunch of arguments quantified with binders directly in front *)
-Fixpoint mkRels (n:nat) := map tRel (mkNums n).
-Fixpoint mkAstRels (n:nat) := map Ast.tRel (mkNums n).
+Definition mkRels (n:nat) := map tRel (mkNums n).
+Definition mkAstRels (n:nat) := map Ast.tRel (mkNums n).
 
 (* hole like underscores to be inferred
   only work in limited cirumstances
