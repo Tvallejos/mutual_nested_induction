@@ -12,13 +12,16 @@ Open Scope bs_scope.
 MetaCoq Run (TC <- Translate emptyTC "nat" ;;
                 tmDefinition "nat_TC" TC ).
 Print natᵗ.
-MetaCoq Run (create_T_is_T natᵗ nat_TC). 
+MetaCoq Run (natfl_TC <- create_T_is_T natᵗ nat_TC;;
+                tmDefinition "natfl_TC" natfl_TC ).
 Print nat_fl.
 
 Inductive trivialterm : Type :=
 | tvar 
 | tapp (s t : trivialterm)
 | tlam (s : trivialterm).
+
+MetaCoq Quote Recursively Definition trt := trivialterm.
 
 MetaCoq Run (TC <- Translate emptyTC "trivialterm" ;;
                 tmDefinition "trivialterm_TC" TC ).
@@ -31,7 +34,8 @@ Inductive term_example : Type :=
 | lam (s : term_example).
 
 (* should the translate plugin check if the translation already exists? *)
-MetaCoq Run (TC <- Translate nat_TC "term_example" ;;
+MetaCoq Run (TC <- Translate natfl_TC "term_example" ;;
                 tmDefinition "term_TC" TC ).
 Print term_exampleᵗ.
 MetaCoq Run (create_T_is_T term_exampleᵗ term_TC).
+Print term_example_fl. 

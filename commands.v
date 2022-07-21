@@ -172,21 +172,40 @@ Fixpoint get_decls (ctx : Env.context ) : list BasicAst.aname :=
     | d :: decls => d.(decl_name) :: get_decls decls
     end.
 
-Definition eqb_term t t' : bool :=
-    if EqDec_term t t' then false else true.
+(* Definition eqb_term t t' : bool :=
+    if EqDec_term t t' then false else true. *)
+Definition is_same_type t arity i :=
+    match t with
+    | Ast.tRel n => (n+i+1) == arity
+    | _ => false
+    end.
 
-Fixpoint generate_ith_arguments (A : Ast.term)(rels : list nat) (argsA : Env.context) (pcontext_size : nat):=
+Definition fl_ident : ident -> ident :=
+    fun id => id ^ "_fl".
+
+Definition get_kn_from_ty ty mp :=
+    match ty with
+    | Ast.tInd {| inductive_mind := (_, name) |} _ => (mp,fl_ident name)
+    | _ => (MPfile [""],"ith type was not an inductive")
+    end.
+  
+Fixpoint generate_ith_arguments (A : Ast.term)(rels : list nat) (argsA : Env.context) (pcontext_size : nat) (TC : tsl_context) mp arity:=
     match rels,argsA with
     | i::is, d :: decls => 
         let ith_ty := d.(decl_type) in 
-        let prf := if eqb_term A ith_ty
+        let prf := if is_same_type ith_ty arity i
             then Ast.tRel (#|argsA|+i + pcontext_size)
-            else Ast.tVar "todo" in 
-        [Ast.tRel i ; Ast.tApp prf [Ast.tRel i]] :: generate_ith_arguments A is decls pcontext_size
+            else let fl_kn := get_kn_from_ty ith_ty mp in
+                match (lookup_tsl_table (snd TC) (ConstRef fl_kn)) with
+                | Some t => t
+                | None => Ast.tVar ("fundamental lemma :" ^ (string_of_kername fl_kn)^"is not available in the translation context")
+                end
+            in 
+        [Ast.tRel i ; Ast.tApp prf [Ast.tRel i]] :: generate_ith_arguments A is decls pcontext_size TC mp arity
     | _, _ => []
     end.
 
-Definition generate_bbody_forall_A_is_A_a uinstA is_Ak (A : Ast.term) (argsA: Env.context) (k : nat) (uinstisA : Instance.t): Ast.term :=
+Definition generate_bbody_forall_A_is_A_a uinstA is_Ak (A : Ast.term) (argsA: Env.context) (k : nat) (uinstisA : Instance.t) TC mp arity: Ast.term :=
     let is_K := Ast.tConstruct {| inductive_mind := is_Ak ; inductive_ind := uinstA |} k uinstisA in
     (* TODO HOW TO MERGE UNIVERSES *)
     (* FIXME is this always right? *)
@@ -195,8 +214,8 @@ Definition generate_bbody_forall_A_is_A_a uinstA is_Ak (A : Ast.term) (argsA: En
     | nil => is_K
     | _ => 
         (* to reach f we need to know the size of pcontext later will be replaced*)
-        let R := flat_map rev (generate_ith_arguments A (seq 0 #|argsA|) argsA pcontext_size) in
-        Ast.tApp is_K  (rev R)
+        let R := flat_map rev (generate_ith_arguments A (seq 0 #|argsA|) argsA pcontext_size TC mp arity) in
+        Ast.tApp is_K (rev R)
     end. 
 
 Definition get_ctors (mind : Env.mutual_inductive_body) (uinst : nat) : list Env.constructor_body :=
@@ -205,11 +224,11 @@ Definition get_ctors (mind : Env.mutual_inductive_body) (uinst : nat) : list Env
     | None => [] (* how to handle better this case? *)
     end.
 
-Definition generate_branches_forall_A_is_A_a (uinstA : nat) (uinstisA : Instance.t) (A is_A : Ast.term)(Ak is_Ak : kername) (A_mind is_A_mind : Env.mutual_inductive_body) : list (Ast.branch Ast.term) :=
+Definition generate_branches_forall_A_is_A_a (uinstA : nat) (uinstisA : Instance.t) (A is_A : Ast.term)(Ak is_Ak : kername) (A_mind is_A_mind : Env.mutual_inductive_body) TC mp : list (Ast.branch Ast.term) :=
     let get_one_branch := fun (k:nat) ctorA =>
-        let argsA := match ctorA with Env.Build_constructor_body _ argsA _ _ _ => argsA end in
+        let (argsA,arity) := match ctorA with Env.Build_constructor_body _ argsA _ _ arity => (argsA,arity)end in
         let bctx := get_decls argsA in
-        let bbdy := generate_bbody_forall_A_is_A_a uinstA is_Ak A argsA k uinstisA  in
+        let bbdy := generate_bbody_forall_A_is_A_a uinstA is_Ak A argsA k uinstisA TC mp arity in
         {| Ast.bcontext := bctx ; Ast.bbody := bbdy |} 
         in
     mapi get_one_branch (get_ctors A_mind uinstA).
@@ -220,7 +239,7 @@ Definition get_inductive_uinst (t : Ast.term) :=
     | _ => ({| inductive_mind := (MPfile [""],"error in generate the body of fundamental lemma") ; inductive_ind := 0 |} , [] )
     end.
 
-Definition generate_body_forall_A_is_A_a Ak is_Ak A is_A A_mind is_A_mind :=
+Definition generate_body_forall_A_is_A_a Ak is_Ak A is_A A_mind is_A_mind TC mp :=
     let (inductiveA,uinstA) := get_inductive_uinst A in 
     let (inductiveisA,uinstisA) := get_inductive_uinst is_A in 
     let case_info := {| ci_ind := inductiveA ; 
@@ -233,21 +252,17 @@ Definition generate_body_forall_A_is_A_a Ak is_Ak A is_A A_mind is_A_mind :=
                         Ast.preturn := Ast.mkApps is_A [Ast.tRel 0]
                         |} in
     let inductive_instance := Ast.tRel 0 in 
-    let branches := generate_branches_forall_A_is_A_a inductiveA.(inductive_ind) uinstisA A is_A Ak is_Ak A_mind is_A_mind in
+    let branches := generate_branches_forall_A_is_A_a inductiveA.(inductive_ind) uinstisA A is_A Ak is_Ak A_mind is_A_mind TC mp in
     Ast.tLambda (rName "inst") A
     (Ast.tCase case_info predicate inductive_instance branches).
 
-    (* Definition forall_A_is_A_a (A : Ast.term) (is_A : Ast.term) : Ast.term :=
- *)
+(* Definition forall_A_is_A_a (A : Ast.term) (is_A : Ast.term) : Ast.term := *)
 (* forall (A: Type) (P : A -> Set), forall a : A, P a *)    
 Definition get_kername (A : Ast.term) : kername :=
     match A with
     | Ast.tInd ({| inductive_mind := k |} ) _ => k
     | _ => (MPfile [""],"lemma body error A was not an inductive")
     end.
-
-Definition fl_ident : ident -> ident :=
-    fun id => id ^ "_fl".
 
 Definition tm_debug {A} a s :=
         tmMsg "===============";;
@@ -259,9 +274,9 @@ Definition tm_debug {A} a s :=
         ret a.
 
 
-Definition generate_fixpoint A is_A Ak is_Ak A_mind is_A_mind :=
+Definition generate_fixpoint A is_A Ak is_Ak A_mind is_A_mind TC mp:=
     let conclusion_type := forall_A_is_A_a_type A is_A in
-    let body := generate_body_forall_A_is_A_a Ak is_Ak A is_A A_mind is_A_mind in
+    let body := generate_body_forall_A_is_A_a Ak is_Ak A is_A A_mind is_A_mind TC mp in
         is_A <- tm_debug is_A "Type is_A";;
         A <- tm_debug A "Type A";;
         conclusion_type <- tm_debug conclusion_type "conclusion Type : forall a : is_A a" ;;
@@ -288,19 +303,20 @@ Definition generate_fixpoint A is_A Ak is_Ak A_mind is_A_mind :=
         ret (fixp,decl).
 
 Definition create_T_is_T {T : Type} (x : T)  (TC : tsl_context) : TemplateMonad tsl_context :=
-    p <-  tmQuoteRec x ;;
+        p <-  tmQuoteRec x ;;
     let (genv,is_A) :=  (p : Env.program) in
     let is_Ak := get_kername is_A in
         is_A_mind <- tmQuoteInductive is_Ak;;
     let A := get_A_from_is_A genv in
     let Ak := get_kername A in
-        A_mind <- tmQuoteInductive Ak;;
-        fixp_decl <- generate_fixpoint A is_A Ak is_Ak A_mind is_A_mind ;;
-    let fl_name := fl_ident Ak.2 in
         mp <- tmCurrentModPath tt ;;
+        A_mind <- tmQuoteInductive Ak;;
+        '(fixp,decl) <- generate_fixpoint A is_A Ak is_Ak A_mind is_A_mind TC mp;;
+    let fl_name := fl_ident Ak.2 in
     let fl_kn := (mp,fl_name) in
-        tmMkDefinition fl_name fixp_decl.1;;
-    let Σ' := ((Env.add_global_decl (fst TC) (fl_kn, Env.ConstantDecl fixp_decl.2)),is_A_mind.(Env.ind_universes))  in
+(*         tmMkDefinition fl_name fixp_decl.1;; *)
+        tmMkDefinition fl_name fixp;;
+    let Σ' := ((Env.add_global_decl (fst TC) (fl_kn, Env.ConstantDecl decl)),is_A_mind.(Env.ind_universes))  in
     let (_,uinstA) := get_inductive_uinst is_A in 
     let E' := ((ConstRef fl_kn, Ast.tConst fl_kn uinstA) :: (snd TC)) : tsl_table in
         TC' <- tmEval lazy (Σ',E');;
