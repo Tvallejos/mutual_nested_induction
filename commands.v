@@ -138,8 +138,6 @@ Definition createFunctorial (verbose:bool) {T} rt:=
         tmMsg ("Created "^name)
     ) verbose T rt.
 
-Axiom todo : forall t, t.
-
 Definition get_A_from_is_A (c : Env.global_env) : Ast.term :=
     match c with
     | Env.Build_global_env _ ( d :: decls)  => 
@@ -251,94 +249,23 @@ Definition get_kername (A : Ast.term) : kername :=
 Definition fl_ident : ident -> ident :=
     fun id => id ^ "_fl".
 
-(*     Definition Translate {tsl : Translation} (ΣE : tsl_context) (id : ident)
-    : TemplateMonad tsl_context :=
-    tmDebug ("Translate " ^ id);;
-    gr <- tmLocate1 id ;;
-    tmDebug gr;;
-    match gr with
-    | VarRef _ => tmFail "Section variable not supported for the moment"
-    | ConstructRef (mkInd kn n) _
-    | IndRef (mkInd kn n) =>
-      mp <- tmCurrentModPath tt ;;
-      d <- tmQuoteInductive kn ;;
-      d' <- tmEval lazy (tsl_ind ΣE mp kn d) ;;
-      match d' with
-      | Error e =>
-        print_nf e ;;
-        fail_nf ("Translation error during the translation of the inductive " ^ id)
-      | Success (E, decls) =>
-        monad_iter (fun x => tmDebug x ;; tmMkInductive' x) decls ;;
-        let Σ' := add_global_decl (kn,InductiveDecl d) (fst ΣE) in
-        let E' := (E ++ snd ΣE) in
-        Σ' <- tmEval lazy Σ' ;;
-        E' <- tmEval lazy E' ;;
-        tmMsg (string_of_kername kn ^ " has been translated.") ;;
-        ret (Σ', E')
-      end
-      
-    | ConstRef kn =>
-      e <- tmQuoteConstant kn true ;;
-      match e.(cst_body) with
-      | None =>
-        fail_nf (id ^ " is an axiom, not a definition. Use Implement Existing.")
-      | Some t =>
-        let A := e.(cst_type) in
-        let univs := e.(cst_universes) in
-        tmDebug t ;;
-        t' <- tmEval lazy (tsl_tm ΣE t) ;;
-        tmDebug t' ;;
-        match t' with
-        | Error e =>
-          print_nf e ;;
-          fail_nf ("Translation error during the translation of the body of " ^ id)
-        | Success t' =>
-          id' <- tmEval all (tsl_id id) ;;
-          tmDebug "here" ;;
-          tmDebug id' ;;
-          tmDebug t' ;;
-          tmMkDefinition id' t' ;;
-          tmDebug "doneu" ;;
-          gr' <- tmLocate1 id' ;;
-          let decl := {| cst_universes := univs;
-                         cst_type := A; cst_body := Some t;
-                         cst_relevance := e.(cst_relevance) |} in
-          let Σ' := add_global_decl (kn, ConstantDecl decl) (fst ΣE) in
-          let E' := (ConstRef kn, monomorph_globref_term gr') :: (snd ΣE) in
-          Σ' <- tmEval lazy Σ' ;;
-          E' <- tmEval lazy E' ;;
-          print_nf (id ^ " has been translated as " ^ id') ;;
-          ret (Σ', E')
-        end
-      end
-    end.     *)
+Definition tm_debug {A} a s :=
+        tmMsg "===============";;
+        tmMsg ("===  "^s^ "  ===");;
+        tmMsg "===============";;
+        a <- tmEval lazy a ;;
+        @tmPrint A a;;
+        tmMsg ("========== end "^s^ "===============");;
+        ret a.
+
+
 Definition generate_fixpoint A is_A Ak is_Ak A_mind is_A_mind :=
     let conclusion_type := forall_A_is_A_a_type A is_A in
     let body := generate_body_forall_A_is_A_a Ak is_Ak A is_A A_mind is_A_mind in
-        tmMsg "===============";;
-        tmMsg "=== Type is_A ===";;
-        tmMsg "===============";;
-        tmEval lazy is_A >>=
-        tmPrint ;;
-        tmMsg "========== end is_A ===============";;
-        tmMsg "===============";;
-        tmMsg "===  Type A  ===";;
-        tmMsg "===============";;
-        tmEval lazy A >>=
-        tmPrint ;; 
-        tmMsg "========== end A ===============";;
-        tmMsg "===============";;
-        tmMsg "===  conclusion Type : forall a : is_A a  ===";;
-        tmMsg "===============";;
-        tmEval lazy conclusion_type >>=
-        tmPrint ;; 
-        tmMsg "========== end conclusion type ===============";;
-        tmMsg "===============";;
-        tmMsg "===  Body  ===";;
-        tmMsg "===============";;
-        tmEval lazy body >>=
-        tmPrint ;;
-        tmMsg "========== end body ===============";;
+        is_A <- tm_debug is_A "Type is_A";;
+        A <- tm_debug A "Type A";;
+        conclusion_type <- tm_debug conclusion_type "conclusion Type : forall a : is_A a" ;;
+        body <- tm_debug body "Body" ;;
     let mfixpoint := 
         [{|
             dname := rName "f";
@@ -347,19 +274,13 @@ Definition generate_fixpoint A is_A Ak is_Ak A_mind is_A_mind :=
             rarg  := 0 (* for non container types you just need 1 arg*)   
                      (* for container types you have A : type and is_A : A -> Prop in ctx *)
                      (* for the moment just considering "normal" types *)
-            
          |}] in 
     let fixp_ :=  
 (*         (it_mkLambda_or_LetIn 
         [] the context depends on the parameters *)
         (Ast.tFix mfixpoint 0)
         in
-        tmMsg "===============";;
-        tmMsg "===  fixpoint ===";;
-        tmMsg "===============";;
-        fixp <- tmEval lazy fixp_ ;;
-        tmPrint fixp;;
-        tmMsg "========== end fixpoint ===============" ;;
+        fixp <- tm_debug fixp_ "fixpoint";;
         let decl := {|  Env.cst_universes := is_A_mind.(Env.ind_universes) ;
                         Env.cst_type := conclusion_type; 
                         Env.cst_body := Some fixp;
@@ -375,20 +296,13 @@ Definition create_T_is_T {T : Type} (x : T)  (TC : tsl_context) : TemplateMonad 
     let Ak := get_kername A in
         A_mind <- tmQuoteInductive Ak;;
         fixp_decl <- generate_fixpoint A is_A Ak is_Ak A_mind is_A_mind ;;
-
-        let fl_name := fl_ident Ak.2 in
+    let fl_name := fl_ident Ak.2 in
         mp <- tmCurrentModPath tt ;;
-        let fl_kn := (mp,fl_name) in
+    let fl_kn := (mp,fl_name) in
         tmMkDefinition fl_name fixp_decl.1;;
-        let Σ' := ((Env.add_global_decl (fst TC) (fl_kn, Env.ConstantDecl fixp_decl.2)),is_A_mind.(Env.ind_universes))  in
-        let (_,uinstA) := get_inductive_uinst is_A in 
-        let E' := ((ConstRef fl_kn, Ast.tConst fl_kn uinstA) :: (snd TC)) : tsl_table in
+    let Σ' := ((Env.add_global_decl (fst TC) (fl_kn, Env.ConstantDecl fixp_decl.2)),is_A_mind.(Env.ind_universes))  in
+    let (_,uinstA) := get_inductive_uinst is_A in 
+    let E' := ((ConstRef fl_kn, Ast.tConst fl_kn uinstA) :: (snd TC)) : tsl_table in
         TC' <- tmEval lazy (Σ',E');;
         print_nf (Ak.2 ^ " fundamental lemma has been generated as " ^ fl_name) ;;
     ret TC'.
-
-        
-(*  let Σ := TemplateToPCUIC.trans_global (genv,Monomorphic_ctx) : PCUICProgram.global_env_ext_map in 
-    let sig := PCUICProgram.global_env_ext_map_global_env_map Σ in *)
-
-  
