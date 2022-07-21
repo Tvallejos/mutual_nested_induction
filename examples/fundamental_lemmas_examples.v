@@ -23,18 +23,18 @@ Inductive trivialterm : Type :=
 
 MetaCoq Quote Recursively Definition trt := trivialterm.
 
-MetaCoq Run (TC <- Translate emptyTC "trivialterm" ;;
+MetaCoq Run (TC <- Translate natfl_TC "trivialterm" ;;
                 tmDefinition "trivialterm_TC" TC ).
-MetaCoq Run (create_T_is_T trivialtermᵗ trivialterm_TC).
+MetaCoq Run (create_T_is_T trivialtermᵗ trivialterm_TC >>= tmDefinition "term_fl_TC").
 Print trivialterm_fl. 
 
 Inductive term_example : Type :=
 | var (n : nat)
-| app (s t : term_example)
+| app (s t : term_example) (ot : trivialterm)
 | lam (s : term_example).
 
 (* should the translate plugin check if the translation already exists? *)
-MetaCoq Run (TC <- Translate natfl_TC "term_example" ;;
+MetaCoq Run (TC <- Translate term_fl_TC "term_example" ;;
                 tmDefinition "term_TC" TC ).
 Print term_exampleᵗ.
 MetaCoq Run (create_T_is_T term_exampleᵗ term_TC).
