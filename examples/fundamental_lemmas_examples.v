@@ -12,7 +12,7 @@ Open Scope bs_scope.
 MetaCoq Run (TC <- Translate emptyTC "nat" ;;
                 tmDefinition "nat_TC" TC ).
 Print natᵗ.
-MetaCoq Run (create_T_is_T natᵗ). 
+MetaCoq Run (create_T_is_T natᵗ nat_TC). 
 Print nat_fl.
 
 Inductive trivialterm : Type :=
@@ -22,7 +22,7 @@ Inductive trivialterm : Type :=
 
 MetaCoq Run (TC <- Translate emptyTC "trivialterm" ;;
                 tmDefinition "trivialterm_TC" TC ).
-MetaCoq Run (create_T_is_T trivialtermᵗ).
+MetaCoq Run (create_T_is_T trivialtermᵗ trivialterm_TC).
 Print trivialterm_fl. 
 
 Inductive term_example : Type :=
@@ -34,4 +34,4 @@ Inductive term_example : Type :=
 MetaCoq Run (TC <- Translate nat_TC "term_example" ;;
                 tmDefinition "term_TC" TC ).
 Print term_exampleᵗ.
-MetaCoq Run (create_T_is_T term_exampleᵗ).
+MetaCoq Run (create_T_is_T term_exampleᵗ term_TC).

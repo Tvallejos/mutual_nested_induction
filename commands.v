@@ -12,6 +12,7 @@ Require Import functorial.
 Require Import functorial_lookup.
 From MetaCoq.Template Require Import All ReflectAst.
 
+From MetaCoq.Translations Require Import translation_utils.
 From MetaCoq Require Import All.
 Require Import String List.
 (* Local Open Scope string. *)
@@ -26,6 +27,7 @@ From MetaCoq.PCUIC Require Import
 From MetaCoq.PCUIC Require Import TemplateToPCUIC.
 From MetaCoq.PCUIC Require Import PCUICToTemplate.
 
+(* From MetaCoq.Translations Require Import param_original. *)
 Require Import util.
 
 Definition empty_env := PCUICProgram.build_global_env_map {| universes := ContextSet.empty ; declarations := [] |}.
@@ -181,7 +183,7 @@ Fixpoint generate_ith_arguments (A : Ast.term)(rels : list nat) (argsA : Env.con
         let ith_ty := d.(decl_type) in 
         let prf := if eqb_term A ith_ty
             then Ast.tRel (#|argsA|+i + pcontext_size)
-            else Ast.tVar "todo" in
+            else Ast.tVar "todo" in 
         [Ast.tRel i ; Ast.tApp prf [Ast.tRel i]] :: generate_ith_arguments A is decls pcontext_size
     | _, _ => []
     end.
@@ -246,14 +248,71 @@ Definition get_kername (A : Ast.term) : kername :=
     | _ => (MPfile [""],"lemma body error A was not an inductive")
     end.
 
-Definition create_T_is_T {T : Type} (x : T) : TemplateMonad unit :=
-    p <-  tmQuoteRec x ;;
-    let (genv,is_A) :=  (p : Env.program) in
-    let is_Ak := get_kername is_A in
-        is_A_mind <- tmQuoteInductive is_Ak;;
-    let A := get_A_from_is_A genv in
-    let Ak := get_kername A in
-        A_mind <- tmQuoteInductive Ak;;
+Definition fl_ident : ident -> ident :=
+    fun id => id ^ "_fl".
+
+(*     Definition Translate {tsl : Translation} (ΣE : tsl_context) (id : ident)
+    : TemplateMonad tsl_context :=
+    tmDebug ("Translate " ^ id);;
+    gr <- tmLocate1 id ;;
+    tmDebug gr;;
+    match gr with
+    | VarRef _ => tmFail "Section variable not supported for the moment"
+    | ConstructRef (mkInd kn n) _
+    | IndRef (mkInd kn n) =>
+      mp <- tmCurrentModPath tt ;;
+      d <- tmQuoteInductive kn ;;
+      d' <- tmEval lazy (tsl_ind ΣE mp kn d) ;;
+      match d' with
+      | Error e =>
+        print_nf e ;;
+        fail_nf ("Translation error during the translation of the inductive " ^ id)
+      | Success (E, decls) =>
+        monad_iter (fun x => tmDebug x ;; tmMkInductive' x) decls ;;
+        let Σ' := add_global_decl (kn,InductiveDecl d) (fst ΣE) in
+        let E' := (E ++ snd ΣE) in
+        Σ' <- tmEval lazy Σ' ;;
+        E' <- tmEval lazy E' ;;
+        tmMsg (string_of_kername kn ^ " has been translated.") ;;
+        ret (Σ', E')
+      end
+      
+    | ConstRef kn =>
+      e <- tmQuoteConstant kn true ;;
+      match e.(cst_body) with
+      | None =>
+        fail_nf (id ^ " is an axiom, not a definition. Use Implement Existing.")
+      | Some t =>
+        let A := e.(cst_type) in
+        let univs := e.(cst_universes) in
+        tmDebug t ;;
+        t' <- tmEval lazy (tsl_tm ΣE t) ;;
+        tmDebug t' ;;
+        match t' with
+        | Error e =>
+          print_nf e ;;
+          fail_nf ("Translation error during the translation of the body of " ^ id)
+        | Success t' =>
+          id' <- tmEval all (tsl_id id) ;;
+          tmDebug "here" ;;
+          tmDebug id' ;;
+          tmDebug t' ;;
+          tmMkDefinition id' t' ;;
+          tmDebug "doneu" ;;
+          gr' <- tmLocate1 id' ;;
+          let decl := {| cst_universes := univs;
+                         cst_type := A; cst_body := Some t;
+                         cst_relevance := e.(cst_relevance) |} in
+          let Σ' := add_global_decl (kn, ConstantDecl decl) (fst ΣE) in
+          let E' := (ConstRef kn, monomorph_globref_term gr') :: (snd ΣE) in
+          Σ' <- tmEval lazy Σ' ;;
+          E' <- tmEval lazy E' ;;
+          print_nf (id ^ " has been translated as " ^ id') ;;
+          ret (Σ', E')
+        end
+      end
+    end.     *)
+Definition generate_fixpoint A is_A Ak is_Ak A_mind is_A_mind :=
     let conclusion_type := forall_A_is_A_a_type A is_A in
     let body := generate_body_forall_A_is_A_a Ak is_Ak A is_A A_mind is_A_mind in
         tmMsg "===============";;
@@ -290,21 +349,45 @@ Definition create_T_is_T {T : Type} (x : T) : TemplateMonad unit :=
                      (* for the moment just considering "normal" types *)
             
          |}] in 
-    let fixp :=  
-(*         (it_mkLambda_or_LetIn
-        [] (* the context depends on the parameters*) *)
+    let fixp_ :=  
+(*         (it_mkLambda_or_LetIn 
+        [] the context depends on the parameters *)
         (Ast.tFix mfixpoint 0)
-(*         )  *)
         in
         tmMsg "===============";;
         tmMsg "===  fixpoint ===";;
         tmMsg "===============";;
-        tmEval lazy fixp >>=
-        tmPrint ;;
-        tmMsg "========== end fixpoint ===============";;
-        tmMkDefinition (Ak.2^"_fl") fixp;;
+        fixp <- tmEval lazy fixp_ ;;
+        tmPrint fixp;;
+        tmMsg "========== end fixpoint ===============" ;;
+        let decl := {|  Env.cst_universes := is_A_mind.(Env.ind_universes) ;
+                        Env.cst_type := conclusion_type; 
+                        Env.cst_body := Some fixp;
+                        Env.cst_relevance := Relevant |} in (* FIXME is it always relevant? *)
+        ret (fixp,decl).
+
+Definition create_T_is_T {T : Type} (x : T)  (TC : tsl_context) : TemplateMonad tsl_context :=
+    p <-  tmQuoteRec x ;;
+    let (genv,is_A) :=  (p : Env.program) in
+    let is_Ak := get_kername is_A in
+        is_A_mind <- tmQuoteInductive is_Ak;;
+    let A := get_A_from_is_A genv in
+    let Ak := get_kername A in
+        A_mind <- tmQuoteInductive Ak;;
+        fixp_decl <- generate_fixpoint A is_A Ak is_Ak A_mind is_A_mind ;;
+
+        let fl_name := fl_ident Ak.2 in
+        mp <- tmCurrentModPath tt ;;
+        let fl_kn := (mp,fl_name) in
+        tmMkDefinition fl_name fixp_decl.1;;
+        let Σ' := ((Env.add_global_decl (fst TC) (fl_kn, Env.ConstantDecl fixp_decl.2)),is_A_mind.(Env.ind_universes))  in
+        let (_,uinstA) := get_inductive_uinst is_A in 
+        let E' := ((ConstRef fl_kn, Ast.tConst fl_kn uinstA) :: (snd TC)) : tsl_table in
+        TC' <- tmEval lazy (Σ',E');;
+        print_nf (Ak.2 ^ " fundamental lemma has been generated as " ^ fl_name) ;;
+    ret TC'.
+
         
-    ret tt.
 (*  let Σ := TemplateToPCUIC.trans_global (genv,Monomorphic_ctx) : PCUICProgram.global_env_ext_map in 
     let sig := PCUICProgram.global_env_ext_map_global_env_map Σ in *)
 
