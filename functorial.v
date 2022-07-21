@@ -87,9 +87,6 @@ Section Functorial.
     Definition non_uni_param_ctx := firstn non_uniform_param_count all_param_ctx. (* non-uniform are behind => at the front *)
     Definition param_ctx := skipn #|non_uni_param_ctx| all_param_ctx. 
     
-    Print PCUICProgram.global_env_map.
-    Print global_env.
-    Check {| universes := ContextSet.empty ; declarations := [] |} : global_env.
     Definition empty_env := PCUICProgram.build_global_env_map {| universes := ContextSet.empty ; declarations := [] |}.
     Definition TrueQ :=
         TemplateToPCUIC.trans empty_env <% True %>.

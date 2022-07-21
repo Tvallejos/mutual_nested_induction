@@ -10,7 +10,7 @@ From MetaCoq.Induction Require Import
     functorial_lookup.
 Require Import functorial.
 Require Import functorial_lookup.
-From MetaCoq.Template Require Import All.
+From MetaCoq.Template Require Import All ReflectAst.
 
 From MetaCoq Require Import All.
 Require Import String List.
@@ -172,16 +172,31 @@ Fixpoint get_decls (ctx : Env.context ) : list BasicAst.aname :=
     | d :: decls => d.(decl_name) :: get_decls decls
     end.
 
-(* TODO HOW TO MERGE UNIVERSES *)
-Definition generate_bbody_forall_A_is_A_a uinstA is_Ak (bctx : list BasicAst.aname) (i : nat) (uinstisA : Instance.t): Ast.term :=
-    let is_K := Ast.tConstruct {| inductive_mind := is_Ak ; inductive_ind := uinstA |} i uinstisA in
-    (* FIXME put the right universes *)
+Definition eqb_term t t' : bool :=
+    if EqDec_term t t' then false else true.
+
+Fixpoint generate_ith_arguments (A : Ast.term)(rels : list nat) (argsA : Env.context) (pcontext_size : nat):=
+    match rels,argsA with
+    | i::is, d :: decls => 
+        let ith_ty := d.(decl_type) in 
+        let prf := if eqb_term A ith_ty
+            then Ast.tRel (#|argsA|+i + pcontext_size)
+            else Ast.tVar "todo" in
+        [Ast.tRel i ; Ast.tApp prf [Ast.tRel i]] :: generate_ith_arguments A is decls pcontext_size
+    | _, _ => []
+    end.
+
+Definition generate_bbody_forall_A_is_A_a uinstA is_Ak (A : Ast.term) (argsA: Env.context) (k : nat) (uinstisA : Instance.t): Ast.term :=
+    let is_K := Ast.tConstruct {| inductive_mind := is_Ak ; inductive_ind := uinstA |} k uinstisA in
+    (* TODO HOW TO MERGE UNIVERSES *)
+    (* FIXME is this always right? *)
     let pcontext_size := 1 in
-    match bctx with
+    match argsA with
     | nil => is_K
-    | _ => let R := (flat_map (fun n=> (rev [Ast.tRel n ; Ast.tApp (Ast.tRel (#|bctx| + pcontext_size)) [Ast.tRel n]])) (seq 0 #|bctx|)) in
-        Ast.tApp is_K (rev R)
-    (* to reach f we need to know the size of pcontext later will be replaced*)
+    | _ => 
+        (* to reach f we need to know the size of pcontext later will be replaced*)
+        let R := flat_map rev (generate_ith_arguments A (seq 0 #|argsA|) argsA pcontext_size) in
+        Ast.tApp is_K  (rev R)
     end. 
 
 Definition get_ctors (mind : Env.mutual_inductive_body) (uinst : nat) : list Env.constructor_body :=
@@ -190,11 +205,11 @@ Definition get_ctors (mind : Env.mutual_inductive_body) (uinst : nat) : list Env
     | None => [] (* how to handle better this case? *)
     end.
 
-Definition generate_branches_forall_A_is_A_a (uinstA : nat) (uinstisA : Instance.t) (Ak is_Ak : kername) (A_mind is_A_mind : Env.mutual_inductive_body) : list (Ast.branch Ast.term) :=
-    let get_one_branch := fun (i:nat) ctorA =>
+Definition generate_branches_forall_A_is_A_a (uinstA : nat) (uinstisA : Instance.t) (A is_A : Ast.term)(Ak is_Ak : kername) (A_mind is_A_mind : Env.mutual_inductive_body) : list (Ast.branch Ast.term) :=
+    let get_one_branch := fun (k:nat) ctorA =>
         let argsA := match ctorA with Env.Build_constructor_body _ argsA _ _ _ => argsA end in
         let bctx := get_decls argsA in
-        let bbdy := generate_bbody_forall_A_is_A_a uinstA is_Ak bctx i uinstisA in
+        let bbdy := generate_bbody_forall_A_is_A_a uinstA is_Ak A argsA k uinstisA  in
         {| Ast.bcontext := bctx ; Ast.bbody := bbdy |} 
         in
     mapi get_one_branch (get_ctors A_mind uinstA).
@@ -218,7 +233,7 @@ Definition generate_body_forall_A_is_A_a Ak is_Ak A is_A A_mind is_A_mind :=
                         Ast.preturn := Ast.mkApps is_A [Ast.tRel 0]
                         |} in
     let inductive_instance := Ast.tRel 0 in 
-    let branches := generate_branches_forall_A_is_A_a inductiveA.(inductive_ind) uinstisA Ak is_Ak A_mind is_A_mind in
+    let branches := generate_branches_forall_A_is_A_a inductiveA.(inductive_ind) uinstisA A is_A Ak is_Ak A_mind is_A_mind in
     Ast.tLambda (rName "inst") A
     (Ast.tCase case_info predicate inductive_instance branches).
 

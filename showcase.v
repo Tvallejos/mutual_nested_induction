@@ -16,20 +16,6 @@ From MetaCoq.Translations Require Import param_original.
 
 Open Scope bs_scope.
 
-MetaCoq Run (TC <- Translate emptyTC "nat" ;;
-                tmDefinition "nat_TC" TC ).
-Print natᵗ.
-(* MetaCoq Run (create_T_is_T natᵗ). 
-Print fl_nat.  *)
-Inductive trivialterm : Type :=
-| tvar 
-| tapp (s t : trivialterm)
-| tlam (s : trivialterm).
-
-MetaCoq Run (TC <- Translate emptyTC "trivialterm" ;;
-                tmDefinition "trivialterm_TC" TC ).
-MetaCoq Run (create_T_is_T trivialtermᵗ).
-Print fl_nat. 
 
 MetaCoq Quote Recursively Definition nat_translation := natᵗ.
 MetaCoq Run (createIH false nat).

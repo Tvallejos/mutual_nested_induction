@@ -24,3 +24,14 @@ MetaCoq Run (TC <- Translate emptyTC "trivialterm" ;;
                 tmDefinition "trivialterm_TC" TC ).
 MetaCoq Run (create_T_is_T trivialtermᵗ).
 Print trivialterm_fl. 
+
+Inductive term_example : Type :=
+| var (n : nat)
+| app (s t : term_example)
+| lam (s : term_example).
+
+(* should the translate plugin check if the translation already exists? *)
+MetaCoq Run (TC <- Translate nat_TC "term_example" ;;
+                tmDefinition "term_TC" TC ).
+Print term_exampleᵗ.
+MetaCoq Run (create_T_is_T term_exampleᵗ).
