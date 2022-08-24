@@ -145,8 +145,10 @@ Definition create_T_is_T {T : Type} (x : T)  (TC : tsl_context) : TemplateMonad 
     let (genv,is_A) :=  (p : Env.program) in
     let is_Ak := get_kername is_A in
         is_A_mind <- tmQuoteInductive is_Ak;;
+        is_A <- tm_debug is_A "Type is_A";;
     let A := get_A_from_is_A genv in
-    let Ak := get_kername A in
+        A <- tm_debug A "Type A";;
+    let Ak := get_kername (drop_apps A) in
         mp <- tmCurrentModPath tt ;;
         A_mind <- tmQuoteInductive Ak;;
         '(fixp,decl) <- generate_fixpoint A is_A Ak is_Ak A_mind is_A_mind TC mp;;

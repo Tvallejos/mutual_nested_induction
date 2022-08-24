@@ -8,6 +8,13 @@ Import MCMonadNotation.
 
 Local Open Scope bs_scope.
 Require Import util.
+Print Ast.tInd.
+Fixpoint drop_apps t : Ast.term :=
+    match t with
+    | Ast.tApp t u => drop_apps t
+    | Ast.tInd _ _ => t
+    | _ => tVar "error drop apps"
+    end.
 
 Definition get_A_from_is_A (c : Env.global_env) : Ast.term :=
     match c with
@@ -30,9 +37,17 @@ Definition get_A_from_is_A (c : Env.global_env) : Ast.term :=
     | Env.Build_global_env _ _  => Ast.tVar "error get_A_from_is_A"
     end.
 
-Definition forall_A_is_A_a_type (A is_A : Ast.term) : Ast.term :=
+Definition conclusion (A is_A : Ast.term) : Ast.term :=
     Ast.tProd (rName "aname") A 
-    (Ast.tApp is_A [Ast.tRel 0]).
+            (Ast.tApp is_A [Ast.tRel 0]).
+
+Fixpoint forall_A_is_A_a_type (conclusion : Ast.term) (ctx : Env.context) : Ast.term :=
+    match ctx with
+    | nil => conclusion
+    | cons d td => Ast.tProd (decl_name d) (decl_type d) (forall_A_is_A_a_type conclusion td)
+(*     | cons { decl_name := aname, decl_type := ty } td => Ast.tProd aname ty (forall_A_is_A_a_type conclusion) *)
+    end.
+
 
 
 (* Definition get_decls (ctx : Env.context) : list BasicAst.aname :=
@@ -145,12 +160,14 @@ Definition tm_debug {A} a s :=
         tmMsg ("========== end "++s++ "===============");;
         ret a.
 
+(* Definition get_params_from_mind (t : Ast.term) : Env.context :=
+    match t with
+    | tInd *)
 
 Definition generate_fixpoint A is_A Ak is_Ak A_mind is_A_mind TC mp:=
-    let conclusion_type := forall_A_is_A_a_type A is_A in
+    let is_A_params := ind_params is_A_mind in
+    let conclusion_type := forall_A_is_A_a_type (conclusion A is_A) (rev is_A_params)  in
     let body := generate_body_forall_A_is_A_a Ak is_Ak A is_A A_mind is_A_mind TC mp in
-        is_A <- tm_debug is_A "Type is_A";;
-        A <- tm_debug A "Type A";;
         conclusion_type <- tm_debug conclusion_type "conclusion Type : forall a : is_A a" ;;
         body <- tm_debug body "Body" ;;
     let mfixpoint := 

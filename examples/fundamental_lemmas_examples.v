@@ -39,3 +39,13 @@ MetaCoq Run (TC <- Translate term_fl_TC "term_example" ;;
 Print term_exampleᵗ.
 MetaCoq Run (create_T_is_T term_exampleᵗ term_TC).
 Print term_example_fl. 
+
+MetaCoq Run (TC <- Translate emptyTC "list" ;;
+                tmDefinition "list_TC" TC ).
+Print listᵗ.
+MetaCoq Quote Recursively Definition f_ := listᵗ.
+Print f_.
+MetaCoq Quote Recursively Definition f := list.
+Print f.
+MetaCoq Run (create_T_is_T listᵗ list_TC).
+Print term_example_fl. 
