@@ -66,6 +66,7 @@ From MetaCoq.PCUIC Require Import
 From MetaCoq.PCUIC Require Import TemplateToPCUIC.
 From MetaCoq.PCUIC Require Import PCUICToTemplate PCUICAst.
 
+From MetaCoq.Induction Require Import util.
 Section Functorial.
 
     Variable 
@@ -87,9 +88,6 @@ Section Functorial.
     Definition non_uni_param_ctx := firstn non_uniform_param_count all_param_ctx. (* non-uniform are behind => at the front *)
     Definition param_ctx := skipn #|non_uni_param_ctx| all_param_ctx. 
     
-    Definition empty_env := PCUICProgram.build_global_env_map {| universes := ContextSet.empty ; declarations := [] |}.
-    Definition TrueQ :=
-        TemplateToPCUIC.trans empty_env <% True %>.
 
 
     (*
@@ -111,7 +109,6 @@ Section Functorial.
         end.
 
 
-    Definition app_arg_list num args := map (fun x => x+num) args++mkNums num.
 
     (* no context but list of params *)
     (* 
@@ -129,8 +126,8 @@ Section Functorial.
                     (map (fun x => x+4) arg2++[3;1]) in
                 ((S groups, arg1,arg2),
                     x::xᵗ::
-                    (map_decl (lift0 1) xᵗ)::
-                    (vass rAnon (func (tRel 1) (tRel 0) [] (lift0 2 xᵗ.(decl_type))))::
+                    (map_decl (lift0 1) xᵗ):: (* Aᵗ' *) 
+                    (vass rAnon (func (tRel 1) (tRel 0) [] (lift0 2 xᵗ.(decl_type)))):: (* F_A *)
                     (mapi (fun i a => map_decl (lift 2 i) a) aug_args))
         | _ => 
         let indices := rev (indice_ctx) in

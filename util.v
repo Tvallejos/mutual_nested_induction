@@ -127,3 +127,15 @@ Fixpoint mkEagerApps (t:term) (us:list term) : term :=
     | [] => t
     | u::ur => mkEagerApps (mkEagerApp t u) ur
     end.
+
+Definition empty_env := PCUICProgram.build_global_env_map {| universes := ContextSet.empty ; declarations := [] |}.
+Definition TrueQ := TemplateToPCUIC.trans empty_env <% True %>.
+Definition app_arg_list num args := map (fun x => x+num) args++mkNums num.
+
+Fixpoint ctx_to_type (args : Env.context) t : Ast.term :=
+    match args with
+    | nil => t
+    | d :: ds => let (na,_,ty) := d in
+                Ast.tProd na ty (ctx_to_type ds t)
+    end.
+    

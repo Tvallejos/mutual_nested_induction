@@ -1,7 +1,7 @@
 
 From MetaCoq.Template Require Import All ReflectAst.
 From MetaCoq.Translations Require Import translation_utils.
-
+From MetaCoq.Induction Require Import util.
 Require Import String List.
 Import ListNotations Nat.
 Import MCMonadNotation.
@@ -41,12 +41,13 @@ Definition conclusion (A is_A : Ast.term) : Ast.term :=
     Ast.tProd (rName "aname") A 
             (Ast.tApp is_A [Ast.tRel 0]).
 
-Fixpoint forall_A_is_A_a_type (conclusion : Ast.term) (ctx : Env.context) : Ast.term :=
-    match ctx with
+Definition forall_A_is_A_a_type (conclusion : Ast.term) (ctx : Env.context) : Ast.term :=
+    it_mkLambda_or_LetIn ctx conclusion.
+(*     match ctx with
     | nil => conclusion
     | cons d td => Ast.tProd (decl_name d) (decl_type d) (forall_A_is_A_a_type conclusion td)
 (*     | cons { decl_name := aname, decl_type := ty } td => Ast.tProd aname ty (forall_A_is_A_a_type conclusion) *)
-    end.
+    end. *)
 
 
 
@@ -160,13 +161,58 @@ Definition tm_debug {A} a s :=
         tmMsg ("========== end "++s++ "===============");;
         ret a.
 
-(* Definition get_params_from_mind (t : Ast.term) : Env.context :=
-    match t with
-    | tInd *)
+    (*
+    given an argument Aᵗ generates a function which introduces 
+    every needed argument for the predicate to land in type (Aᵗ args)
+    for Sort, generate Aᵗ args
+    for Product, copy the binder and remember to apply the arguments
+    Otherwise generate True
+
+    x is Aᵗ
+    t is the type of x
+    meant to be called with args as empty list
+     *)
+    Fixpoint fl_prop (x : Ast.term) (args : list Ast.term) (t : Ast.term) : Ast.term :=
+        match t with
+        | Ast.tSort univ => 
+            Ast.tApp x args
+        | Ast.tProd na a b =>
+            Ast.tProd na a (
+                fl_prop (lift0 1 x) (map (lift0 1) args ++ [Ast.tRel 0]) b
+            )
+        | _ => PCUICToTemplate.trans TrueQ
+        end.
+    
+    Definition name_from_param (A : context_decl) : aname :=
+        let (ana,_,_) := A in 
+        let na := match binder_name ana with
+                  | BasicAst.nNamed id => BasicAst.nNamed (id ++ "H")
+                  | nAnon => BasicAst.nNamed "error name_from_param: parameter should have a name"
+                  end in
+        mkBindAnn na (binder_relevance ana).
+
+
+
+    (* 
+    given the parameters and indexes of Aᵗ it generates a new context
+    where it adds BH : forall b : B, Bᵗ b for every pair B Bᵗ happening in the parameters
+    Meant to be called with reversed contexts *)
+    Fixpoint add_AH (params inds: Env.context) (arg1  : list nat) :=
+        match params with
+        | x::xᵗ::xr => 
+            let '(arg1, aug_args) := 
+                add_AH xr inds
+                    (map (fun x => x+3) arg1++[3;2]) in 
+                (arg1,
+                    x::xᵗ::
+                    (vass (name_from_param x) (fl_prop (tRel 0) [] (lift0 1 xᵗ.(decl_type)))) :: 
+                    (mapi (fun i a => map_decl (lift 1 i) a) aug_args))
+        | _ => 
+        (app_arg_list (#|params|+#|inds|) arg1,(app params inds))
+        end.
 
 Definition generate_fixpoint A is_A Ak is_Ak A_mind is_A_mind TC mp:=
-    let is_A_params := ind_params is_A_mind in
-    let conclusion_type := forall_A_is_A_a_type (conclusion A is_A) (rev is_A_params)  in
+    let conclusion_type := forall_A_is_A_a_type (conclusion A is_A) (ind_params is_A_mind)  in
     let body := generate_body_forall_A_is_A_a Ak is_Ak A is_A A_mind is_A_mind TC mp in
         conclusion_type <- tm_debug conclusion_type "conclusion Type : forall a : is_A a" ;;
         body <- tm_debug body "Body" ;;
