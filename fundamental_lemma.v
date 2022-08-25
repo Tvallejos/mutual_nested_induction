@@ -200,21 +200,46 @@ Definition tm_debug {A} a s :=
     Fixpoint add_AH (params inds: Env.context) (arg1  : list nat) :=
         match params with
         | x::xᵗ::xr => 
-            let '(arg1, aug_args) := 
+            let '((n,arg1), aug_args) := 
                 add_AH xr inds
                     (map (fun x => x+3) arg1++[3;2]) in 
-                (arg1,
+                ((S n, arg1),
                     x::xᵗ::
                     (vass (name_from_param x) (fl_prop (tRel 0) [] (lift0 1 xᵗ.(decl_type)))) :: 
                     (mapi (fun i a => map_decl (lift 1 i) a) aug_args))
         | _ => 
-        (app_arg_list (#|params|+#|inds|) arg1,(app params inds))
+        ((0,
+            (app_arg_list (#|params|+#|inds|) arg1)),(app params inds))
         end.
 
+Fixpoint drop_parametricity_params_  {A: Type} l : bool -> list A :=
+    fun b =>
+    match l with
+    | nil => []
+    | cons h t => if b then drop_parametricity_params_ t (negb b) 
+                 else h :: drop_parametricity_params_ t (negb b) 
+    end. 
+
+Definition drop_parametricity_params {A:Type} l : list A :=
+    drop_parametricity_params_ l true.
+
+Definition change_is_A_args t args : Ast.term :=
+    match t with
+    | Ast.tApp t u => Ast.tApp t args
+    | _ => t
+    end.
+
 Definition generate_fixpoint A is_A Ak is_Ak A_mind is_A_mind TC mp:=
-    let conclusion_type := forall_A_is_A_a_type (conclusion A is_A) (ind_params is_A_mind)  in
-    let body := generate_body_forall_A_is_A_a Ak is_Ak A is_A A_mind is_A_mind TC mp in
+    let '((n,args),params) := add_AH (rev (ind_params is_A_mind)) [] [] in (* FIXME WHEN ADDING INDICES *)
+    let argrels := map (fun n => Ast.tRel n) args in
+    let lifted_A := (change_is_A_args A (drop_parametricity_params argrels)) in
+(*     (change_is_A_args is_A argrels) in *)
+    let conclusion_type := tProd (rName "aname") lifted_A 
+                    (mkApps is_A (argrels++[Ast.tRel 0])) in
+(*         body <- tm_debug input "Conclusion type" ;; *)
+(*     let conclusion_type := forall_A_is_A_a_type input (rev params) in  *)
         conclusion_type <- tm_debug conclusion_type "conclusion Type : forall a : is_A a" ;;
+    let body := generate_body_forall_A_is_A_a Ak is_Ak A is_A A_mind is_A_mind TC mp in
         body <- tm_debug body "Body" ;;
     let mfixpoint := 
         [{|
