@@ -9,6 +9,7 @@ Import MCMonadNotation.
 Local Open Scope bs_scope.
 Require Import util.
 Print Ast.tInd.
+
 Fixpoint drop_apps t : Ast.term :=
     match t with
     | Ast.tApp t u => drop_apps t
@@ -131,9 +132,11 @@ Definition generate_body_forall_A_is_A_a Ak is_Ak A is_A A_mind is_A_mind TC mp 
     let (inductiveA,uinstA) := get_inductive_uinst A in 
     let (inductiveisA,uinstisA) := get_inductive_uinst is_A in 
     let case_info := {| ci_ind := inductiveA ; 
-                        ci_npar := 0 ; 
+                        ci_npar := #|(ind_params A_mind)| ; 
                             (* TODO update for nested types *)
-                        ci_relevance := Relevant |} in
+                        ci_relevance := Relevant    
+                            (* this should be the relevance of the i'th body 
+                                where i is the instance of the inductive *)|} in
     let predicate := {| Ast.puinst := uinstA ; 
                         Ast.pparams := []; (* not handling params for the moment *) 
                         Ast.pcontext := [rName "inst"];
@@ -239,7 +242,7 @@ Definition generate_fixpoint A is_A Ak is_Ak A_mind is_A_mind TC mp:=
 (*         body <- tm_debug input "Conclusion type" ;; *)
 (*     let conclusion_type := forall_A_is_A_a_type input (rev params) in  *)
         conclusion_type <- tm_debug conclusion_type "conclusion Type : forall a : is_A a" ;;
-    let body := generate_body_forall_A_is_A_a Ak is_Ak A is_A A_mind is_A_mind TC mp in
+    let body := generate_body_forall_A_is_A_a Ak is_Ak (drop_apps A) is_A A_mind is_A_mind TC mp (* (n + #|params|) *) in
         body <- tm_debug body "Body" ;;
     let mfixpoint := 
         [{|
