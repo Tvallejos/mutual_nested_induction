@@ -128,7 +128,7 @@ Definition get_inductive_uinst (t : Ast.term) :=
     | _ => ({| inductive_mind := (MPfile [""],"error in generate the body of fundamental lemma") ; inductive_ind := 0 |} , [] )
     end.
 
-Definition generate_body_forall_A_is_A_a Ak is_Ak A is_A A_mind is_A_mind TC mp :=
+Definition generate_body_forall_A_is_A_a Ak is_Ak A is_A A_mind is_A_mind TC mp pparams argrels :=
     let (inductiveA,uinstA) := get_inductive_uinst A in 
     let (inductiveisA,uinstisA) := get_inductive_uinst is_A in 
     let case_info := {| ci_ind := inductiveA ; 
@@ -138,9 +138,9 @@ Definition generate_body_forall_A_is_A_a Ak is_Ak A is_A A_mind is_A_mind TC mp 
                             (* this should be the relevance of the i'th body 
                                 where i is the instance of the inductive *)|} in
     let predicate := {| Ast.puinst := uinstA ; 
-                        Ast.pparams := []; (* not handling params for the moment *) 
+                        Ast.pparams := map (lift0 2) pparams ; (* now inst and f in ctx *)
                         Ast.pcontext := [rName "inst"];
-                        Ast.preturn := Ast.mkApps is_A [Ast.tRel 0]
+                        Ast.preturn := Ast.mkApps is_A (app (map (lift0 2) argrels) [Ast.tRel 0]) 
                         |} in
     let inductive_instance := Ast.tRel 0 in 
     let branches := generate_branches_forall_A_is_A_a inductiveA.(inductive_ind) uinstisA A is_A Ak is_Ak A_mind is_A_mind TC mp in
@@ -235,14 +235,15 @@ Definition change_is_A_args t args : Ast.term :=
 Definition generate_fixpoint A is_A Ak is_Ak A_mind is_A_mind TC mp:=
     let '((n,args),params) := add_AH (rev (ind_params is_A_mind)) [] [] in (* FIXME WHEN ADDING INDICES *)
     let argrels := map (fun n => Ast.tRel n) args in
-    let lifted_A := (change_is_A_args A (drop_parametricity_params argrels)) in
+    let A_args := (drop_parametricity_params argrels) in
+    let lifted_A := (change_is_A_args A A_args) in
 (*     (change_is_A_args is_A argrels) in *)
     let conclusion_type := tProd (rName "aname") lifted_A 
                     (mkApps is_A (argrels++[Ast.tRel 0])) in
 (*         body <- tm_debug input "Conclusion type" ;; *)
 (*     let conclusion_type := forall_A_is_A_a_type input (rev params) in  *)
         conclusion_type <- tm_debug conclusion_type "conclusion Type : forall a : is_A a" ;;
-    let body := generate_body_forall_A_is_A_a Ak is_Ak (drop_apps A) is_A A_mind is_A_mind TC mp (* (n + #|params|) *) in
+    let body := generate_body_forall_A_is_A_a Ak is_Ak (drop_apps A) is_A A_mind is_A_mind TC mp A_args argrels(* (n + #|params|) *) in
         body <- tm_debug body "Body" ;;
     let mfixpoint := 
         [{|
