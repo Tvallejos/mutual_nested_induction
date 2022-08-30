@@ -13,7 +13,7 @@ Print Ast.tInd.
 Fixpoint drop_apps t : Ast.term :=
     match t with
     | Ast.tApp t u => drop_apps t
-    | Ast.tInd _ _ => t
+    | Ast.tInd _ _ | Ast.tRel _ => t
     | _ => tVar "error drop apps"
     end.
 
@@ -63,9 +63,9 @@ Fixpoint get_decls (ctx : Env.context ) : list BasicAst.aname :=
 
 (* Definition eqb_term t t' : bool :=
     if EqDec_term t t' then false else true. *)
-Definition is_same_type t arity i :=
+Definition is_same_type t liftby i :=
     match t with
-    | Ast.tRel n => (n+i+1) == arity
+    | Ast.tRel n => n == liftby + i 
     | _ => false
     end.
 
@@ -78,27 +78,41 @@ Definition get_kn_from_ty ty mp :=
     | _ => (MPfile [""],"ith type was not an inductive")
     end.
  
-Print BasicAst.context_decl.
+ Definition is_tInd t :=
+    match t with
+    | Ast.tInd _ _ => true
+    | _ => false
+    end.
+
+Definition type_of_itharg t :=
+    match t with
+(*     | Ast.tRel n => 10000 *)
+    | Ast.tRel n => n
+    | _ => 5000
+    end.
 (* FIXME, find new way of constructing ith arg *)
-Definition generate_ith_proof ith_ty arity i (argsA : Env.context) pcontext_size mp (TC : tsl_context) : Ast.term :=
-            if is_same_type ith_ty arity i
-            then Ast.tRel (#|argsA|+i + pcontext_size)
+Definition generate_ith_proof ith_ty npars nargs i (argsA : Env.context) (pcontext_size : nat) mp (TC : tsl_context) : Ast.term :=
+            if is_same_type (drop_apps ith_ty) npars i 
+            then Ast.tRel ( nargs + 1) (* recursive call to f *)
+            else if negb (is_tInd ith_ty) then (* is a parameter in sort *)
+                let x := type_of_itharg ith_ty in
+                Ast.tRel (x * 3 + nargs + 2)
             else let fl_kn := get_kn_from_ty ith_ty mp in
                 match (lookup_tsl_table (snd TC) (ConstRef fl_kn)) with
                 | Some t => t
-                | None => Ast.tVar ("fundamental lemma :" ++ (string_of_kername fl_kn) ++ "is not available in the translation context")
+                | None => Ast.tVar ("fundamental lemma : " ++ (string_of_kername fl_kn) ++ " is not available in the translation context")
                 end.
 
-Fixpoint generate_ith_arguments (A : Ast.term)(rels : list nat) (argsA : Env.context) (pcontext_size : nat) (TC : tsl_context) mp arity:=
+Fixpoint generate_ith_arguments (A : Ast.term)(rels : list nat) nargs (argsA : Env.context) (pcontext_size : nat) (TC : tsl_context) mp npars:=
     match rels,argsA with
     | i::is, d :: decls => 
         let ith_ty := d.(decl_type) in 
-        let prf := generate_ith_proof ith_ty arity i argsA pcontext_size mp TC in 
-        [Ast.tRel i ; Ast.tApp prf [Ast.tRel i]] :: generate_ith_arguments A is decls pcontext_size TC mp arity
+        let prf := generate_ith_proof ith_ty npars nargs i argsA pcontext_size mp TC in 
+        rev [Ast.tRel (nargs - (i + 1 )) ; Ast.tApp prf [Ast.tRel (nargs - (i + 1))]] :: generate_ith_arguments A is nargs decls pcontext_size TC mp npars
     | _, _ => []
     end.
 
-Definition generate_bbody_forall_A_is_A_a uinstA is_Ak (A : Ast.term) (argsA: Env.context) (k : nat) (uinstisA : Instance.t) TC mp arity argrels : Ast.term :=
+Definition generate_bbody_forall_A_is_A_a uinstA is_Ak (A : Ast.term) (argsA: Env.context) (k : nat) (uinstisA : Instance.t) TC mp npars argrels : Ast.term :=
     let is_K := Ast.tConstruct {| inductive_mind := is_Ak ; inductive_ind := uinstA |} k uinstisA in
     (* TODO HOW TO MERGE UNIVERSES *)
     (* FIXME is this always right? *)
@@ -111,7 +125,7 @@ Definition generate_bbody_forall_A_is_A_a uinstA is_Ak (A : Ast.term) (argsA: En
         else Ast.tApp is_K (map (lift0 1) argrels)
     | _ => 
         (* to reach f we need to know the size of pcontext later will be replaced*)
-        let R := flat_map (@rev _) (generate_ith_arguments A (seq 0 #|argsA|) argsA pcontext_size TC mp arity) in
+        let R := flat_map (@id _) (generate_ith_arguments A (rev (seq 0 #|argsA|)) #|argsA| argsA pcontext_size TC mp npars) in
         Ast.tApp is_K (app (map (lift0 pcontext_size) argrels) (rev R))
     end. 
 
@@ -123,9 +137,9 @@ Definition get_ctors (mind : Env.mutual_inductive_body) (uinst : nat) : list Env
 
 Definition generate_branches_forall_A_is_A_a (uinstA : nat) (uinstisA : Instance.t) (A is_A : Ast.term)(Ak is_Ak : kername) (A_mind is_A_mind : Env.mutual_inductive_body) TC mp argsrel: list (Ast.branch Ast.term) :=
     let get_one_branch := fun (k:nat) ctorA =>
-        let (argsA,arity) := match ctorA with Env.Build_constructor_body _ argsA _ _ arity => (argsA,arity)end in
+        let argsA := match ctorA with Env.Build_constructor_body _ argsA _ _ _ => argsA end in
         let bctx := map decl_name argsA in
-        let bbdy := generate_bbody_forall_A_is_A_a uinstA is_Ak A argsA k uinstisA TC mp arity argsrel in
+        let bbdy := generate_bbody_forall_A_is_A_a uinstA is_Ak A argsA k uinstisA TC mp (A_mind.(ind_npars)) argsrel in
         {| Ast.bcontext := bctx ; Ast.bbody := bbdy |} 
         in
     mapi get_one_branch (get_ctors A_mind uinstA).
