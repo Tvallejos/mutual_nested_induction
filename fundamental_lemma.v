@@ -277,9 +277,10 @@ Definition generate_fixpoint A is_A Ak is_Ak A_mind is_A_mind TC mp:=
                      (* for the moment just considering "normal" types *)
          |}] in 
     let fixp_ :=  
-(*         (it_mkLambda_or_LetIn 
-        [] the context depends on the parameters *)
-        (Ast.tFix mfixpoint 0)
+        (it_mkLambda_or_LetIn 
+(*         [] *)
+        (rev params) (* the context depends on the parameters *) 
+        (Ast.tFix mfixpoint 0))
         in
         fixp <- tm_debug fixp_ "fixpoint";;
         let decl := {|  Env.cst_universes := is_A_mind.(Env.ind_universes) ;
