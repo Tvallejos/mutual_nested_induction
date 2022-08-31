@@ -44,25 +44,7 @@ Definition conclusion (A is_A : Ast.term) : Ast.term :=
 
 Definition forall_A_is_A_a_type (conclusion : Ast.term) (ctx : Env.context) : Ast.term :=
     it_mkLambda_or_LetIn ctx conclusion.
-(*     match ctx with
-    | nil => conclusion
-    | cons d td => Ast.tProd (decl_name d) (decl_type d) (forall_A_is_A_a_type conclusion td)
-(*     | cons { decl_name := aname, decl_type := ty } td => Ast.tProd aname ty (forall_A_is_A_a_type conclusion) *)
-    end. *)
 
-
-
-(* Definition get_decls (ctx : Env.context) : list BasicAst.aname :=
-    fold_left _ _ (fun acc (decl:BasicAst.context_decl term)=> decl.(decl_name) :: acc) [] ctx. *)
-    
-Fixpoint get_decls (ctx : Env.context ) : list BasicAst.aname :=
-    match ctx with
-    | nil => nil
-    | d :: decls => d.(decl_name) :: get_decls decls
-    end.
-
-(* Definition eqb_term t t' : bool :=
-    if EqDec_term t t' then false else true. *)
 Definition is_same_type t liftby i :=
     match t with
     | Ast.tRel n => n == liftby + i 
@@ -97,8 +79,6 @@ Definition generate_ith_proof ith_ty npars nargs i (argsA : Env.context) (pconte
             else if negb (is_tInd ith_ty) then (* is a parameter in sort *)
                 let x := type_of_itharg ith_ty in
                 Ast.tRel ((x - i)*3 + nargs + 2)
-(*                 Ast.tRel ((x + i) * 3 + nargs + 2) *)
-(*                 Ast.tRel ((nargs - (x+i+2)) * 3 + nargs + 2) *)
             else let fl_kn := get_kn_from_ty ith_ty mp in
                 match (lookup_tsl_table (snd TC) (ConstRef fl_kn)) with
                 | Some t => t
@@ -117,17 +97,14 @@ Fixpoint generate_ith_arguments (A : Ast.term)(rels : list nat) nargs (argsA : E
 Definition generate_bbody_forall_A_is_A_a uinstA is_Ak (A : Ast.term) (argsA: Env.context) (k : nat) (uinstisA : Instance.t) TC mp npars argrels : Ast.term :=
     let is_K := Ast.tConstruct {| inductive_mind := is_Ak ; inductive_ind := uinstA |} k uinstisA in
     (* TODO HOW TO MERGE UNIVERSES *)
-    (* FIXME is this always right? *)
-(*     let pcontext_size := if #|argrels| == 0 then 1 else #|argrels| in *)
     let pcontext_size := #|argsA| + 1 in
-(*     1 + #|argsA| in *)
     match argsA with
     | nil => 
         if #|argrels| == 0 
         then is_K 
         else Ast.tApp is_K (map (lift0 1) argrels)
     | _ => 
-        (* to reach f we need to know the size of pcontext later will be replaced*)
+        (* to reach f we need to know the how many args were introduced in kth constructor *)
         let R := flat_map (@id _) (generate_ith_arguments A (rev (seq 0 #|argsA|)) #|argsA| argsA pcontext_size TC mp npars) in
         Ast.tApp is_K (app (map (lift0 pcontext_size) argrels) (rev R))
     end. 
@@ -281,7 +258,6 @@ Definition generate_fixpoint A is_A Ak is_Ak A_mind is_A_mind TC mp:=
          |}] in 
     let fixp_ :=  
         (it_mkLambda_or_LetIn 
-(*         [] *)
         (rev params) (* the context depends on the parameters *) 
         (Ast.tFix mfixpoint 0))
         in
@@ -289,5 +265,5 @@ Definition generate_fixpoint A is_A Ak is_Ak A_mind is_A_mind TC mp:=
         let decl := {|  Env.cst_universes := is_A_mind.(Env.ind_universes) ;
                         Env.cst_type := conclusion_type; 
                         Env.cst_body := Some fixp;
-                        Env.cst_relevance := Relevant |} in (* FIXME is it always relevant? *)
+                        Env.cst_relevance := Relevant |} in 
         ret (fixp,decl).
