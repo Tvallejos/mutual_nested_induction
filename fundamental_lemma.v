@@ -68,12 +68,12 @@ Definition get_kn_from_ty ty mp :=
 
 Definition type_of_itharg t :=
     match t with
-(*     | Ast.tRel n => 10000 *)
     | Ast.tRel n => n
     | _ => 4200
     end.
-(* FIXME, find new way of constructing ith arg *)
-Definition generate_ith_proof ith_ty npars nargs i (argsA : Env.context) (pcontext_size : nat) mp (TC : tsl_context) : Ast.term :=
+    
+
+Definition generate_ith_proof ith_ty npars nargs i mp (TC : tsl_context) : Ast.term :=
             if is_same_type (drop_apps ith_ty) npars i 
             then Ast.tRel ( nargs + 1) (* recursive call to f *)
             else if negb (is_tInd ith_ty) then (* is a parameter in sort *)
@@ -85,19 +85,18 @@ Definition generate_ith_proof ith_ty npars nargs i (argsA : Env.context) (pconte
                 | None => Ast.tVar ("fundamental lemma : " ++ (string_of_kername fl_kn) ++ " is not available in the translation context")
                 end.
 
-Fixpoint generate_ith_arguments (A : Ast.term)(rels : list nat) nargs (argsA : Env.context) (pcontext_size : nat) (TC : tsl_context) mp npars:=
+Fixpoint generate_ith_arguments (rels : list nat) nargs (argsA : Env.context) (TC : tsl_context) mp npars:=
     match rels,argsA with
     | i::is, d :: decls => 
         let ith_ty := d.(decl_type) in 
-        let prf := generate_ith_proof ith_ty npars nargs i argsA pcontext_size mp TC in 
-        rev [Ast.tRel (nargs - (i + 1 )) ; Ast.tApp prf [Ast.tRel (nargs - (i + 1))]] :: generate_ith_arguments A is nargs decls pcontext_size TC mp npars
+        let prf := generate_ith_proof ith_ty npars nargs i mp TC in 
+        rev [Ast.tRel (nargs - (i + 1 )) ; Ast.tApp prf [Ast.tRel (nargs - (i + 1))]] :: generate_ith_arguments is nargs decls TC mp npars
     | _, _ => []
     end.
 
-Definition generate_bbody_forall_A_is_A_a uinstA is_Ak (A : Ast.term) (argsA: Env.context) (k : nat) (uinstisA : Instance.t) TC mp npars argrels : Ast.term :=
+Definition generate_bbody_forall_A_is_A_a uinstA is_Ak (argsA: Env.context) (k : nat) (uinstisA : Instance.t) TC mp npars argrels : Ast.term :=
     let is_K := Ast.tConstruct {| inductive_mind := is_Ak ; inductive_ind := uinstA |} k uinstisA in
     (* TODO HOW TO MERGE UNIVERSES *)
-    let pcontext_size := #|argsA| + 1 in
     match argsA with
     | nil => 
         if #|argrels| == 0 
@@ -105,8 +104,8 @@ Definition generate_bbody_forall_A_is_A_a uinstA is_Ak (A : Ast.term) (argsA: En
         else Ast.tApp is_K (map (lift0 1) argrels)
     | _ => 
         (* to reach f we need to know the how many args were introduced in kth constructor *)
-        let R := flat_map (@id _) (generate_ith_arguments A (rev (seq 0 #|argsA|)) #|argsA| argsA pcontext_size TC mp npars) in
-        Ast.tApp is_K (app (map (lift0 pcontext_size) argrels) (rev R))
+        let R := flat_map (@id _) (generate_ith_arguments (rev (seq 0 #|argsA|)) #|argsA| argsA TC mp npars) in
+        Ast.tApp is_K (app (map (lift0 (#|argsA|+1)) argrels) (rev R))
     end. 
 
 Definition get_ctors (mind : Env.mutual_inductive_body) (uinst : nat) : list Env.constructor_body :=
@@ -115,11 +114,11 @@ Definition get_ctors (mind : Env.mutual_inductive_body) (uinst : nat) : list Env
     | None => [] (* how to handle better this case? *)
     end.
 
-Definition generate_branches_forall_A_is_A_a (uinstA : nat) (uinstisA : Instance.t) (A is_A : Ast.term)(Ak is_Ak : kername) (A_mind is_A_mind : Env.mutual_inductive_body) TC mp argsrel: list (Ast.branch Ast.term) :=
+Definition generate_branches_forall_A_is_A_a (uinstA : nat) (uinstisA : Instance.t) (is_Ak : kername) (A_mind : Env.mutual_inductive_body) TC mp argsrel: list (Ast.branch Ast.term) :=
     let get_one_branch := fun (k:nat) ctorA =>
         let argsA := match ctorA with Env.Build_constructor_body _ argsA _ _ _ => argsA end in
         let bctx := map decl_name argsA in
-        let bbdy := generate_bbody_forall_A_is_A_a uinstA is_Ak A argsA k uinstisA TC mp (A_mind.(ind_npars)) argsrel in
+        let bbdy := generate_bbody_forall_A_is_A_a uinstA is_Ak argsA k uinstisA TC mp (A_mind.(ind_npars)) argsrel in
         {| Ast.bcontext := bctx ; Ast.bbody := bbdy |} 
         in
     mapi get_one_branch (get_ctors A_mind uinstA).
@@ -130,7 +129,8 @@ Definition get_inductive_uinst (t : Ast.term) :=
     | _ => ({| inductive_mind := (MPfile [""],"error in generate the body of fundamental lemma") ; inductive_ind := 0 |} , [] )
     end.
 
-Definition generate_body_forall_A_is_A_a Ak is_Ak A is_A A_mind is_A_mind TC mp pparams argrels :=
+(* TODO REMOVE PPARAMS *)
+Definition generate_body_forall_A_is_A_a is_Ak A is_A A_mind TC mp pparams argrels :=
     let (inductiveA,uinstA) := get_inductive_uinst (drop_apps A) in 
     let (inductiveisA,uinstisA) := get_inductive_uinst is_A in 
     let case_info := {| ci_ind := inductiveA ; 
@@ -145,12 +145,10 @@ Definition generate_body_forall_A_is_A_a Ak is_Ak A is_A A_mind is_A_mind TC mp 
                         Ast.preturn := Ast.mkApps is_A (app (map (lift0 2) argrels) [Ast.tRel 0]) 
                         |} in
     let inductive_instance := Ast.tRel 0 in 
-    let branches := generate_branches_forall_A_is_A_a inductiveA.(inductive_ind) uinstisA A is_A Ak is_Ak A_mind is_A_mind TC mp argrels in
+    let branches := generate_branches_forall_A_is_A_a inductiveA.(inductive_ind) uinstisA is_Ak A_mind TC mp argrels in
     Ast.tLambda (rName "inst") (lift0 1 A) (* f is 0 in body *)
     (Ast.tCase case_info predicate inductive_instance branches).
 
-(* Definition forall_A_is_A_a (A : Ast.term) (is_A : Ast.term) : Ast.term := *)
-(* forall (A: Type) (P : A -> Set), forall a : A, P a *)    
 Definition get_kername (A : Ast.term) : kername :=
     match A with
     | Ast.tInd ({| inductive_mind := k |} ) _ => k
@@ -234,18 +232,15 @@ Definition change_is_A_args t args : Ast.term :=
     | _ => t
     end.
 
-Definition generate_fixpoint A is_A Ak is_Ak A_mind is_A_mind TC mp:=
+Definition generate_fixpoint A is_A is_Ak A_mind is_A_mind TC mp:=
     let '((n,args),params) := add_AH (rev (ind_params is_A_mind)) [] [] in (* FIXME WHEN ADDING INDICES *)
     let argrels := map (fun n => Ast.tRel n) args in
     let A_args := (drop_parametricity_params argrels) in
     let lifted_A := (change_is_A_args A A_args) in
-(*     (change_is_A_args is_A argrels) in *)
     let conclusion_type := tProd (rName "aname") lifted_A 
                     (mkApps is_A (argrels++[Ast.tRel 0])) in
-(*         body <- tm_debug input "Conclusion type" ;; *)
-(*     let conclusion_type := forall_A_is_A_a_type input (rev params) in  *)
         conclusion_type <- tm_debug conclusion_type "conclusion Type : forall a : is_A a" ;;
-    let body := generate_body_forall_A_is_A_a Ak is_Ak lifted_A is_A A_mind is_A_mind TC mp A_args argrels(* (n + #|params|) *) in
+    let body := generate_body_forall_A_is_A_a is_Ak lifted_A is_A A_mind TC mp A_args argrels in
         body <- tm_debug body "Body" ;;
     let mfixpoint := 
         [{|

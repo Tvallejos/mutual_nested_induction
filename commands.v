@@ -8,7 +8,8 @@ From MetaCoq.Induction Require Import
     induction
     functorial 
     functorial_lookup
-    fundamental_lemma.
+    fundamental_lemma
+    util.
 Require Import functorial.
 Require Import functorial_lookup.
 From MetaCoq.Template Require Import All ReflectAst.
@@ -151,10 +152,9 @@ Definition create_T_is_T {T : Type} (x : T)  (TC : tsl_context) : TemplateMonad 
     let Ak := get_kername (drop_apps A) in
         mp <- tmCurrentModPath tt ;;
         A_mind <- tmQuoteInductive Ak;;
-        '(fixp,decl) <- generate_fixpoint A is_A Ak is_Ak A_mind is_A_mind TC mp;;
+        '(fixp,decl) <- generate_fixpoint A is_A is_Ak A_mind is_A_mind TC mp;;
     let fl_name := fl_ident Ak.2 in
     let fl_kn := (mp,fl_name) in
-(*         tmMkDefinition fl_name fixp_decl.1;; *)
         tmMkDefinition fl_name fixp;;
     let Σ' := ((Env.add_global_decl (fst TC) (fl_kn, Env.ConstantDecl decl)),is_A_mind.(Env.ind_universes))  in
     let (_,uinstA) := get_inductive_uinst is_A in 
