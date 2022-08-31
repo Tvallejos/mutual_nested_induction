@@ -96,8 +96,9 @@ Definition generate_ith_proof ith_ty npars nargs i (argsA : Env.context) (pconte
             then Ast.tRel ( nargs + 1) (* recursive call to f *)
             else if negb (is_tInd ith_ty) then (* is a parameter in sort *)
                 let x := type_of_itharg ith_ty in
-(*                 Ast.tRel x *)
-                Ast.tRel ((nargs - (x+i+1)) * 3 + nargs + 2)
+                Ast.tRel ((x - i)*3 + nargs + 2)
+(*                 Ast.tRel ((x + i) * 3 + nargs + 2) *)
+(*                 Ast.tRel ((nargs - (x+i+2)) * 3 + nargs + 2) *)
             else let fl_kn := get_kn_from_ty ith_ty mp in
                 match (lookup_tsl_table (snd TC) (ConstRef fl_kn)) with
                 | Some t => t
@@ -118,7 +119,7 @@ Definition generate_bbody_forall_A_is_A_a uinstA is_Ak (A : Ast.term) (argsA: En
     (* TODO HOW TO MERGE UNIVERSES *)
     (* FIXME is this always right? *)
 (*     let pcontext_size := if #|argrels| == 0 then 1 else #|argrels| in *)
-    let pcontext_size := npars + 2 in
+    let pcontext_size := #|argsA| + 1 in
 (*     1 + #|argsA| in *)
     match argsA with
     | nil => 
